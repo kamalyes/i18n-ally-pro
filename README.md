@@ -206,4 +206,4 @@ i18n-ally-pro/
 
 ## 📄 License
 
-MIT
+本项目采用 [Apache 2.0 License 许可证](LICENSE) 开源
