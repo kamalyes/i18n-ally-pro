@@ -1,0 +1,259 @@
+import { window, ViewColumn, workspace, Uri, Selection, Position, Range } from 'vscode'
+import { TranslationStore } from '../core/store'
+import { getLocaleFlag, getLocaleName } from '../i18n'
+
+interface EditorMessage {
+  type: 'ready' | 'edit' | 'translate' | 'openFile' | 'delete'
+  key?: string
+  locale?: string
+  value?: string
+}
+
+export class KeyEditorPanel {
+  private store: TranslationStore
+  private panel: import('vscode').WebviewPanel | null = null
+  private currentKey: string = ''
+
+  constructor(store: TranslationStore) {
+    this.store = store
+  }
+
+  show(keypath: string) {
+    this.currentKey = keypath
+
+    if (this.panel) {
+      this.panel.reveal(ViewColumn.Beside)
+      this.update()
+      return
+    }
+
+    this.panel = window.createWebviewPanel(
+      'i18nAllyPro.keyEditor',
+      `📝 ${keypath}`,
+      ViewColumn.Beside,
+      { enableScripts: true, retainContextWhenHidden: true },
+    )
+
+    this.panel.onDidDispose(() => { this.panel = null })
+    this.panel.webview.onDidReceiveMessage(async (msg: EditorMessage) => {
+      await this.handleMessage(msg)
+    })
+
+    this.update()
+  }
+
+  private async handleMessage(msg: EditorMessage) {
+    switch (msg.type) {
+      case 'edit': {
+        if (!msg.key || !msg.locale || msg.value === undefined) return
+        await this.store.setTranslation(msg.locale, msg.key, msg.value)
+        this.update()
+        break
+      }
+      case 'translate': {
+        if (!msg.key || !msg.locale) return
+        const config = this.store.projectConfig
+        const sourceValue = this.store.getTranslation(config.sourceLanguage, msg.key)
+        if (!sourceValue) {
+          window.showWarningMessage(`No source translation for "${msg.key}"`)
+          return
+        }
+        try {
+          const { TranslatorService } = await import('../services/translator')
+          const translator = new TranslatorService(this.store)
+          const result = await translator.translateText(sourceValue, config.sourceLanguage, msg.locale)
+          if (result) {
+            await this.store.setTranslation(msg.locale, msg.key, result)
+            this.update()
+          }
+        } catch (err: any) {
+          window.showErrorMessage(`Translation failed: ${err.message}`)
+        }
+        break
+      }
+      case 'openFile': {
+        if (!msg.key || !msg.locale) return
+        const file = this.store.findFileForKey(msg.key, msg.locale)
+        if (file) {
+          const pos = this.store.findKeyPosition(file.filepath, msg.key)
+          const doc = await workspace.openTextDocument(Uri.file(file.filepath))
+          const editor = await window.showTextDocument(doc, ViewColumn.One)
+          if (pos) {
+            const position = new Position(pos.line, pos.column)
+            editor.selection = new Selection(position, position)
+            editor.revealRange(new Range(position, position))
+          }
+        }
+        break
+      }
+      case 'delete': {
+        if (!msg.key || !msg.locale) return
+        const confirm = await window.showWarningMessage(
+          `Delete key "${msg.key}" from ${msg.locale}?`,
+          { modal: true },
+          'Delete',
+        )
+        if (confirm === 'Delete') {
+          await this.store.deleteTranslation(msg.locale, msg.key)
+          this.update()
+        }
+        break
+      }
+    }
+  }
+
+  private update() {
+    if (!this.panel) return
+
+    const key = this.currentKey
+    const locales = this.store.locales
+    const config = this.store.projectConfig
+    const sourceLocale = config.sourceLanguage
+
+    this.panel.title = `📝 ${key}`
+
+    const rows = locales.map(locale => {
+      const value = this.store.getTranslation(locale, key)
+      const isMissing = value === undefined || value === ''
+      const isSource = locale === sourceLocale
+      const flag = getLocaleFlag(locale)
+      const name = getLocaleName(locale)
+
+      const statusClass = isMissing ? 'missing' : (isSource ? 'source' : 'translated')
+      const statusIcon = isMissing ? '⚠️' : (isSource ? '⭐' : '✅')
+      const displayValue = isMissing ? '' : this.escHtml(value!)
+
+      return `
+        <div class="locale-row ${statusClass}" data-locale="${locale}">
+          <div class="locale-info">
+            <span class="flag">${flag}</span>
+            <span class="locale-name">${name}</span>
+            <span class="locale-code">${locale}</span>
+            <span class="status-icon">${statusIcon}</span>
+          </div>
+          <div class="locale-edit">
+            <textarea
+              class="translation-input"
+              data-locale="${locale}"
+              data-key="${this.escAttr(key)}"
+              placeholder="${isMissing ? 'Missing translation...' : ''}"
+              rows="2"
+            >${displayValue}</textarea>
+            <div class="action-buttons">
+              <button class="btn btn-save" onclick="saveValue('${this.escJs(locale)}','${this.escJs(key)}')" title="Save">💾</button>
+              ${!isSource && isMissing ? `<button class="btn btn-translate" onclick="translateKey('${this.escJs(locale)}','${this.escJs(key)}')" title="Auto translate">🤖</button>` : ''}
+              <button class="btn btn-open" onclick="openFile('${this.escJs(locale)}','${this.escJs(key)}')" title="Open in editor">📂</button>
+              <button class="btn btn-delete" onclick="deleteKey('${this.escJs(locale)}','${this.escJs(key)}')" title="Delete">🗑️</button>
+            </div>
+          </div>
+        </div>`
+    }).join('')
+
+    const diagnostics = this.store.getDiagnostics()
+    const keyDiags = diagnostics.filter(d => d.key === key)
+    const missingCount = keyDiags.filter(d => d.type === 'missing').length
+    const emptyCount = keyDiags.filter(d => d.type === 'empty').length
+
+    this.panel.webview.html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Key Editor: ${this.escHtml(key)}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; }
+    .header { margin-bottom: 16px; }
+    .key-path { font-family: monospace; font-size: 16px; color: #4CAF50; word-break: break-all; }
+    .stats { display: flex; gap: 12px; margin-top: 8px; }
+    .stat { padding: 3px 10px; border-radius: 4px; font-size: 12px; }
+    .stat.ok { background: rgba(76,175,80,0.12); color: #4CAF50; }
+    .stat.missing { background: rgba(255,0,0,0.12); color: #f48771; }
+    .stat.empty { background: rgba(255,165,0,0.12); color: #dcdcaa; }
+    .locale-row { border: 1px solid #333; border-radius: 6px; margin-bottom: 8px; padding: 12px; transition: border-color 0.2s; }
+    .locale-row:hover { border-color: #555; }
+    .locale-row.source { border-left: 3px solid #4CAF50; }
+    .locale-row.missing { border-left: 3px solid #f48771; background: rgba(255,0,0,0.03); }
+    .locale-row.translated { border-left: 3px solid #4CAF50; }
+    .locale-info { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .flag { font-size: 20px; }
+    .locale-name { font-size: 13px; color: #ccc; }
+    .locale-code { font-size: 11px; color: #666; font-family: monospace; }
+    .status-icon { margin-left: auto; font-size: 14px; }
+    .locale-edit { display: flex; gap: 8px; align-items: flex-start; }
+    .translation-input {
+      flex: 1; padding: 8px 10px; background: #2d2d2d; border: 1px solid #444;
+      border-radius: 4px; color: #d4d4d4; font-size: 13px; font-family: inherit;
+      resize: vertical; min-height: 36px; outline: none;
+    }
+    .translation-input:focus { border-color: #4CAF50; }
+    .translation-input::placeholder { color: #666; font-style: italic; }
+    .action-buttons { display: flex; gap: 4px; flex-shrink: 0; }
+    .btn { width: 32px; height: 32px; border: 1px solid #444; border-radius: 4px;
+      background: #2d2d2d; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; font-size: 14px; transition: all 0.15s; }
+    .btn:hover { background: #3d3d3d; border-color: #888; }
+    .btn-save:hover { border-color: #4CAF50; }
+    .btn-translate:hover { border-color: #2196F3; }
+    .btn-delete:hover { border-color: #f48771; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="key-path">${this.escHtml(key)}</div>
+    <div class="stats">
+      <span class="stat ok">✅ ${locales.length - missingCount - emptyCount} translated</span>
+      ${missingCount > 0 ? `<span class="stat missing">⚠️ ${missingCount} missing</span>` : ''}
+      ${emptyCount > 0 ? `<span class="stat empty">⬜ ${emptyCount} empty</span>` : ''}
+    </div>
+  </div>
+  <div id="locales">${rows}</div>
+  <script>
+    const vscode = acquireVsCodeApi();
+
+    function saveValue(locale, key) {
+      const textarea = document.querySelector(\`textarea[data-locale="\${locale}"][data-key="\${key}"]\`);
+      if (!textarea) return;
+      vscode.postMessage({ type: 'edit', key, locale, value: textarea.value });
+    }
+
+    function translateKey(locale, key) {
+      vscode.postMessage({ type: 'translate', key, locale });
+    }
+
+    function openFile(locale, key) {
+      vscode.postMessage({ type: 'openFile', key, locale });
+    }
+
+    function deleteKey(locale, key) {
+      vscode.postMessage({ type: 'delete', key, locale });
+    }
+
+    document.querySelectorAll('.translation-input').forEach(input => {
+      input.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 's') {
+          e.preventDefault();
+          const locale = input.dataset.locale;
+          const key = input.dataset.key;
+          saveValue(locale, key);
+        }
+      });
+    });
+  </script>
+</body>
+</html>`
+  }
+
+  private escHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+
+  private escJs(s: string): string {
+    return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"')
+  }
+
+  private escAttr(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+}

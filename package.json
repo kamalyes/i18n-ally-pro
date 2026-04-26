@@ -1,0 +1,262 @@
+{
+  "name": "i18n-ally-pro",
+  "displayName": "i18n Ally Pro",
+  "description": "Smart i18n assistant - Zero config, auto-detect, Go-first, Southeast Asia language support",
+  "version": "1.0.0",
+  "publisher": "kamalyes",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kamalyes/i18n-ally-pro"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "i18n",
+    "localization",
+    "translation",
+    "go",
+    "vue",
+    "react",
+    "southeast asia"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "assets/icon.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "i18nAllyPro.extractText",
+        "title": "%i18nAllyPro.extractText.title%"
+      },
+      {
+        "command": "i18nAllyPro.openTranslation",
+        "title": "%i18nAllyPro.openTranslation.title%"
+      },
+      {
+        "command": "i18nAllyPro.refresh",
+        "title": "%i18nAllyPro.refresh.title%"
+      },
+      {
+        "command": "i18nAllyPro.copyKey",
+        "title": "%i18nAllyPro.copyKey.title%"
+      },
+      {
+        "command": "i18nAllyPro.editTranslation",
+        "title": "%i18nAllyPro.editTranslation.title%"
+      },
+      {
+        "command": "i18nAllyPro.showDiagnostics",
+        "title": "%i18nAllyPro.showDiagnostics.title%"
+      },
+      {
+        "command": "i18nAllyPro.autoTranslate",
+        "title": "%i18nAllyPro.autoTranslate.title%"
+      },
+      {
+        "command": "i18nAllyPro.translateKey",
+        "title": "%i18nAllyPro.translateKey.title%"
+      },
+      {
+        "command": "i18nAllyPro.syncErrorCodes",
+        "title": "%i18nAllyPro.syncErrorCodes.title%"
+      },
+      {
+        "command": "i18nAllyPro.addErrorCode",
+        "title": "%i18nAllyPro.addErrorCode.title%"
+      },
+      {
+        "command": "i18nAllyPro.addErrorCodeWizard",
+        "title": "%i18nAllyPro.addErrorCodeWizard.title%"
+      },
+      {
+        "command": "i18nAllyPro.showMatrix",
+        "title": "%i18nAllyPro.showMatrix.title%"
+      },
+      {
+        "command": "i18nAllyPro.showDashboard",
+        "title": "%i18nAllyPro.showDashboard.title%"
+      },
+      {
+        "command": "i18nAllyPro.checkIntegrity",
+        "title": "%i18nAllyPro.checkIntegrity.title%"
+      },
+      {
+        "command": "i18nAllyPro.goToGoConst",
+        "title": "%i18nAllyPro.goToGoConst.title%"
+      },
+      {
+        "command": "i18nAllyPro.goToJsonKey",
+        "title": "%i18nAllyPro.goToJsonKey.title%"
+      },
+      {
+        "command": "i18nAllyPro.inlineEdit",
+        "title": "%i18nAllyPro.inlineEdit.title%"
+      },
+      {
+        "command": "i18nAllyPro.inlineTranslate",
+        "title": "%i18nAllyPro.inlineTranslate.title%"
+      },
+      {
+        "command": "i18nAllyPro.renameKey",
+        "title": "%i18nAllyPro.renameKey.title%"
+      },
+      {
+        "command": "i18nAllyPro.deleteKey",
+        "title": "%i18nAllyPro.deleteKey.title%"
+      },
+      {
+        "command": "i18nAllyPro.findUnusedKeys",
+        "title": "%i18nAllyPro.findUnusedKeys.title%"
+      },
+      {
+        "command": "i18nAllyPro.deleteUnusedKeys",
+        "title": "%i18nAllyPro.deleteUnusedKeys.title%"
+      },
+      {
+        "command": "i18nAllyPro.clearTranslationCache",
+        "title": "%i18nAllyPro.clearTranslationCache.title%"
+      },
+      {
+        "command": "i18nAllyPro.openKeyEditor",
+        "title": "%i18nAllyPro.openKeyEditor.title%"
+      },
+      {
+        "command": "i18nAllyPro.showDiffReport",
+        "title": "%i18nAllyPro.showDiffReport.title%"
+      }
+    ],
+    "views": {
+      "i18nAllyPro": [
+        {
+          "id": "i18nAllyPro.tree",
+          "name": "%i18nAllyPro.tree.name%"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "i18nAllyPro",
+          "title": "%i18nAllyPro.container.title%",
+          "icon": "assets/icon.png"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "i18n Ally Pro",
+      "properties": {
+        "i18nAllyPro.localesPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%i18nAllyPro.localesPaths.description%"
+        },
+        "i18nAllyPro.framework": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "go-rpc-gateway",
+            "vue-i18n",
+            "react-i18next",
+            "general"
+          ],
+          "default": "auto",
+          "description": "%i18nAllyPro.framework.description%"
+        },
+        "i18nAllyPro.keystyle": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "flat",
+            "nested"
+          ],
+          "default": "auto",
+          "description": "%i18nAllyPro.keystyle.description%"
+        },
+        "i18nAllyPro.enabledParsers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "json",
+              "yaml",
+              "po",
+              "properties"
+            ]
+          },
+          "default": [],
+          "description": "%i18nAllyPro.enabledParsers.description%"
+        },
+        "i18nAllyPro.sourceLanguage": {
+          "type": "string",
+          "default": "",
+          "description": "%i18nAllyPro.sourceLanguage.description%"
+        },
+        "i18nAllyPro.displayLanguage": {
+          "type": "string",
+          "default": "",
+          "description": "%i18nAllyPro.displayLanguage.description%"
+        },
+        "i18nAllyPro.translatorEngine": {
+          "type": "string",
+          "enum": [
+            "google",
+            "deepl",
+            "openai",
+            "microsoft"
+          ],
+          "default": "google",
+          "description": "%i18nAllyPro.translatorEngine.description%"
+        },
+        "i18nAllyPro.translatorApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "%i18nAllyPro.translatorApiKey.description%"
+        },
+        "i18nAllyPro.translatorApiEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "%i18nAllyPro.translatorApiEndpoint.description%"
+        },
+        "i18nAllyPro.autoTranslateOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "%i18nAllyPro.autoTranslateOnSave.description%"
+        },
+        "i18nAllyPro.errorCodesPath": {
+          "type": "string",
+          "default": "",
+          "description": "%i18nAllyPro.errorCodesPath.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch",
+    "package": "webpack --mode production && vsce package",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.32.0",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.3.0",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.0"
+  },
+  "dependencies": {
+    "fast-glob": "^3.3.0",
+    "js-yaml": "^4.1.0",
+    "json5": "^2.2.3"
+  }
+}
