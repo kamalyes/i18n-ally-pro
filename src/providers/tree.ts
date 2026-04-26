@@ -76,8 +76,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     if (element instanceof GroupNode) {
-      const flag = getLocaleFlag(element.locale)
-      const item = new TreeItem(`${flag} ${element.label}`, TreeItemCollapsibleState.Collapsed)
+      const item = new TreeItem(element.label, TreeItemCollapsibleState.Collapsed)
       item.iconPath = ThemeIcon.Folder
       item.tooltip = element.keypath
       item.contextValue = 'group'
@@ -85,8 +84,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     if (element instanceof KeyNode) {
-      const flag = getLocaleFlag(element.locale)
-      const item = new TreeItem(`${flag} ${element.displayKey}`, TreeItemCollapsibleState.None)
+      const item = new TreeItem(element.displayKey, TreeItemCollapsibleState.None)
       if (element.isMissing) {
         item.description = `(${t('editor.missing')})`
         item.iconPath = new ThemeIcon('warning')
