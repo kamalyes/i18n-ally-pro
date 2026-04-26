@@ -1,6 +1,6 @@
 import { window, ViewColumn, Uri, commands } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { getLocaleFlag, getLocaleName } from '../i18n'
+import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass } from '../i18n'
 
 export class ProgressDashboard {
   private store: TranslationStore
@@ -91,12 +91,12 @@ export class ProgressDashboard {
 
     const localeBars = localeData.map(d => {
       const barColor = d.pct === 100 ? '#4CAF50' : d.pct > 70 ? '#FFC107' : d.pct > 40 ? '#FF9800' : '#f48771'
-      const flag = getLocaleFlag(d.locale)
       const name = getLocaleName(d.locale)
+      const flagCss = getLocaleFlagCssClass(d.locale)
       return `
         <div class="locale-row">
           <div class="locale-label">
-            <span class="locale-flag">${flag}</span>
+            <span class="flag-icon-wrap"><span class="fi ${flagCss}"></span></span>
             <span class="locale-name">${name}</span>
             <span class="locale-code">${d.locale}</span>
           </div>
@@ -129,9 +129,9 @@ export class ProgressDashboard {
 
     const missingKeys = diagnostics.filter(d => d.type === 'missing' || d.type === 'empty')
     const topMissing = missingKeys.slice(0, 20).map(d => {
-      const localeFlag = d.locale ? getLocaleFlag(d.locale) : ''
+      const flagCss = d.locale ? getLocaleFlagCssClass(d.locale) : ''
       return `<div class="missing-item clickable" onclick="openKey('${this.escJs(d.key)}')">
-        <span class="missing-locale">${localeFlag} ${d.locale || ''}</span>
+        <span class="missing-locale">${flagCss ? `<span class="flag-icon-sm"><span class="fi ${flagCss}"></span></span>` : ''} ${d.locale || ''}</span>
         <span class="missing-key">${this.escHtml(d.key)}</span>
       </div>`
     }).join('')
@@ -143,6 +143,7 @@ export class ProgressDashboard {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>i18n Progress Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
@@ -162,8 +163,11 @@ export class ProgressDashboard {
     .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
     .locale-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-    .locale-label { width: 120px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .locale-flag { font-size: 16px; }
+    .locale-label { width: 140px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .flag-icon-wrap { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 16px; border-radius: 2px; overflow: hidden; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
+    .flag-icon-wrap .fi { width: 24px; height: 16px; display: block; background-size: contain; background-position: center; background-repeat: no-repeat; }
+    .flag-icon-sm { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 12px; border-radius: 1px; overflow: hidden; vertical-align: middle; border: 1px solid rgba(255,255,255,0.1); }
+    .flag-icon-sm .fi { width: 18px; height: 12px; display: block; background-size: contain; background-position: center; background-repeat: no-repeat; }
     .locale-name { font-size: 12px; color: #ccc; }
     .locale-code { font-size: 10px; color: #666; }
     .locale-bar-wrap { flex: 1; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
@@ -183,7 +187,7 @@ export class ProgressDashboard {
     .missing-item { display: flex; gap: 8px; padding: 4px 6px; font-size: 12px; border-bottom: 1px solid #2a2a2a; }
     .missing-item.clickable { cursor: pointer; transition: background 0.15s; }
     .missing-item.clickable:hover { background: #2d2d2d; }
-    .missing-locale { color: #888; min-width: 40px; }
+    .missing-locale { color: #888; min-width: 40px; display: inline-flex; align-items: center; gap: 4px; }
     .missing-key { color: #f48771; font-family: monospace; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
     .summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }

@@ -1,6 +1,6 @@
 import { window, ViewColumn, workspace, Uri, Selection, Position, Range } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { getLocaleFlag, getLocaleName } from '../i18n'
+import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass } from '../i18n'
 
 interface EditorMessage {
   type: 'ready' | 'edit' | 'translate' | 'openFile' | 'delete'
@@ -116,8 +116,9 @@ export class KeyEditorPanel {
       const value = this.store.getTranslation(locale, key)
       const isMissing = value === undefined || value === ''
       const isSource = locale === sourceLocale
-      const flag = getLocaleFlag(locale)
+      const flagEmoji = getLocaleFlag(locale)
       const name = getLocaleName(locale)
+      const flagCss = getLocaleFlagCssClass(locale)
 
       const statusClass = isMissing ? 'missing' : (isSource ? 'source' : 'translated')
       const statusIcon = isMissing ? '⚠️' : (isSource ? '⭐' : '✅')
@@ -126,7 +127,7 @@ export class KeyEditorPanel {
       return `
         <div class="locale-row ${statusClass}" data-locale="${locale}">
           <div class="locale-info">
-            <span class="flag">${flag}</span>
+            <span class="flag-icon-wrap"><span class="fi ${flagCss}"></span></span>
             <span class="locale-name">${name}</span>
             <span class="locale-code">${locale}</span>
             <span class="status-icon">${statusIcon}</span>
@@ -161,6 +162,7 @@ export class KeyEditorPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Key Editor: ${this.escHtml(key)}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; }
@@ -177,7 +179,8 @@ export class KeyEditorPanel {
     .locale-row.missing { border-left: 3px solid #f48771; background: rgba(255,0,0,0.03); }
     .locale-row.translated { border-left: 3px solid #4CAF50; }
     .locale-info { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .flag { font-size: 20px; }
+    .flag-icon-wrap { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 20px; border-radius: 2px; overflow: hidden; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
+    .flag-icon-wrap .fi { width: 28px; height: 20px; display: block; background-size: contain; background-position: center; background-repeat: no-repeat; }
     .locale-name { font-size: 13px; color: #ccc; }
     .locale-code { font-size: 11px; color: #666; font-family: monospace; }
     .status-icon { margin-left: auto; font-size: 14px; }

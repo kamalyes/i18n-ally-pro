@@ -18,6 +18,18 @@ class I18n {
   private extensionPath = ''
   private currentLanguage = ''
 
+  private static LOCALE_TO_COUNTRY: Record<string, string> = {
+    'ar': 'sa', 'bg': 'bg', 'bm': 'my', 'bn': 'bd', 'cs': 'cz',
+    'da': 'dk', 'de': 'de', 'el': 'gr', 'en': 'us', 'es': 'es',
+    'fi': 'fi', 'fr': 'fr', 'he': 'il', 'hi': 'in', 'hu': 'hu',
+    'id': 'id', 'it': 'it', 'ja': 'jp', 'kh': 'kh', 'ko': 'kr',
+    'lo': 'la', 'ms': 'my', 'my': 'mm', 'nb-NO': 'no', 'nl': 'nl',
+    'nl-NL': 'nl', 'no': 'no', 'pl': 'pl', 'pt': 'pt', 'pt-BR': 'br',
+    'ro': 'ro', 'ru': 'ru', 'sv': 'se', 'sv-SE': 'se', 'tc': 'tw',
+    'th': 'th', 'tr': 'tr', 'uk': 'ua', 'ur': 'pk', 'vi': 'vn',
+    'zh': 'cn', 'zh-CN': 'cn', 'zh-Hans': 'cn', 'zh-Hant': 'tw', 'zh-TW': 'tw',
+  }
+
   init(extensionPath: string) {
     this.extensionPath = extensionPath
     this.reload()
@@ -121,6 +133,17 @@ class I18n {
   getLocaleName(locale: string): string {
     return this.localeNames[locale] || this.fallbackLocaleNames[locale] || locale
   }
+
+  getLocaleCountryCode(locale: string): string {
+    if (I18n.LOCALE_TO_COUNTRY[locale]) return I18n.LOCALE_TO_COUNTRY[locale]
+    const prefix = locale.split('-')[0].toLowerCase()
+    return I18n.LOCALE_TO_COUNTRY[prefix] || prefix
+  }
+
+  getLocaleFlagCssClass(locale: string): string {
+    const code = this.getLocaleCountryCode(locale)
+    return `fi fi-${code}`
+  }
 }
 
 const i18n = new I18n()
@@ -147,6 +170,14 @@ export function getLocaleFlag(locale: string): string {
 
 export function getLocaleName(locale: string): string {
   return i18n.getLocaleName(locale)
+}
+
+export function getLocaleCountryCode(locale: string): string {
+  return i18n.getLocaleCountryCode(locale)
+}
+
+export function getLocaleFlagCssClass(locale: string): string {
+  return i18n.getLocaleFlagCssClass(locale)
 }
 
 export default i18n
