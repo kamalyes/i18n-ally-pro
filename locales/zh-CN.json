@@ -25,6 +25,12 @@
     "syncErrorCodes": "从 Go 同步错误码",
     "translateKey": "翻译当前 Key"
   },
+  "dashboard": {
+    "auto_translate_failed": "自动翻译失败 - {0}",
+    "auto_translate_started": "自动翻译已开始...",
+    "refresh_failed": "刷新失败 - {0}",
+    "refreshed": "仪表盘已刷新"
+  },
   "diff": {
     "all_complete": "所有翻译已完成！",
     "empty_header": "空翻译 ({0}):",
@@ -35,15 +41,27 @@
   },
   "editor": {
     "delete": "删除",
+    "delete_failed": "删除失败 - {0}",
+    "deleted": "已从 {1} 中删除 \"{0}\"",
     "empty": "空",
+    "file_not_found": "未找到 {1} 中 \"{0}\" 的文件",
     "missing": "缺失",
     "missing_placeholder": "缺少翻译...",
+    "no_source": "\"{0}\" 没有源语言翻译",
     "open_file": "在编辑器中打开",
+    "opening_file": "正在打开文件...",
     "save": "保存",
+    "save_failed": "保存失败 - {0}",
+    "saved": "已保存 {1} 中的 \"{0}\"",
+    "saving": "正在保存...",
     "source": "源语言",
     "title": "Key 编辑器",
     "translate": "自动翻译",
-    "translated": "已翻译"
+    "translated": "已翻译",
+    "translated_ok": "已将 \"{0}\" 翻译为 {1}",
+    "translated_empty": "\"{0}\" 翻译到 {1} 返回为空",
+    "translate_failed": "翻译失败: {0}",
+    "translating": "正在翻译..."
   },
   "localeFlags": {
     "ar": "🇸🇦",

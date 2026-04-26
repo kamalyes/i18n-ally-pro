@@ -129,6 +129,10 @@
       {
         "command": "i18nAllyPro.showDiffReport",
         "title": "%i18nAllyPro.showDiffReport.title%"
+      },
+      {
+        "command": "i18nAllyPro.showKeyDependencies",
+        "title": "%i18nAllyPro.showKeyDependencies.title%"
       }
     ],
     "views": {
@@ -211,7 +215,8 @@
             "google",
             "deepl",
             "openai",
-            "microsoft"
+            "microsoft",
+            "deepl-web"
           ],
           "default": "google",
           "description": "%i18nAllyPro.translatorEngine.description%"
@@ -243,7 +248,7 @@
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
     "package": "webpack --mode production && vsce package",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit -p tsconfig.lint.json"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -258,6 +263,7 @@
     "fast-glob": "^3.3.0",
     "flag-icons": "^7.5.0",
     "js-yaml": "^4.1.0",
-    "json5": "^2.2.3"
+    "json5": "^2.2.3",
+    "playwright": "^1.42.0"
   }
 }

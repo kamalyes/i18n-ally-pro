@@ -25,6 +25,12 @@
     "syncErrorCodes": "Sync Error Codes from Go",
     "translateKey": "Translate Current Key"
   },
+  "dashboard": {
+    "auto_translate_failed": "Auto translate failed - {0}",
+    "auto_translate_started": "Auto translate started...",
+    "refresh_failed": "Refresh failed - {0}",
+    "refreshed": "Dashboard refreshed"
+  },
   "diff": {
     "all_complete": "All translations are complete!",
     "empty_header": "Empty translations ({0}):",
@@ -35,15 +41,27 @@
   },
   "editor": {
     "delete": "Delete",
+    "delete_failed": "Delete failed - {0}",
+    "deleted": "Deleted \"{0}\" from {1}",
     "empty": "empty",
+    "file_not_found": "File not found for \"{0}\" in {1}",
     "missing": "missing",
     "missing_placeholder": "Missing translation...",
+    "no_source": "No source translation for \"{0}\"",
     "open_file": "Open in editor",
+    "opening_file": "Opening file...",
     "save": "Save",
+    "save_failed": "Save failed - {0}",
+    "saved": "Saved \"{0}\" in {1}",
+    "saving": "Saving...",
     "source": "Source",
     "title": "Key Editor",
     "translate": "Auto translate",
-    "translated": "translated"
+    "translated": "translated",
+    "translated_empty": "Translation returned empty for \"{0}\" in {1}",
+    "translated_ok": "Translated \"{0}\" to {1}",
+    "translate_failed": "Translation failed: {0}",
+    "translating": "Translating..."
   },
   "localeFlags": {
     "ar": "🇸🇦",

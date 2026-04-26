@@ -1,4 +1,5 @@
 const path = require('path')
+const webpack = require('webpack')
 
 module.exports = {
   target: 'node',
@@ -13,6 +14,10 @@ module.exports = {
   externals: {
     vscode: 'commonjs vscode',
   },
+  plugins: [
+    new webpack.IgnorePlugin({ resourceRegExp: /^playwright$/ }),
+    new webpack.IgnorePlugin({ resourceRegExp: /^playwright-core$/ }),
+  ],
   resolve: {
     extensions: ['.ts', '.js'],
     alias: {

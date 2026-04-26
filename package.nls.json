@@ -24,6 +24,7 @@
   "i18nAllyPro.clearTranslationCache.title": "i18n Pro: Clear Translation Cache",
   "i18nAllyPro.openKeyEditor.title": "i18n Pro: Open Key Editor",
   "i18nAllyPro.showDiffReport.title": "i18n Pro: Show Diff Report",
+  "i18nAllyPro.showKeyDependencies.title": "i18n Pro: Show Key Dependencies",
   "i18nAllyPro.tree.name": "Translations",
   "i18nAllyPro.container.title": "i18n Ally Pro",
   "i18nAllyPro.localesPaths.description": "Translation file directories (auto-detected if empty)",

@@ -3,7 +3,7 @@ import https from 'https'
 import http from 'http'
 import { TranslationStore } from '../core/store'
 
-export type TranslatorEngine = 'google' | 'deepl' | 'openai' | 'microsoft'
+export type TranslatorEngine = 'google' | 'deepl' | 'openai' | 'microsoft' | 'deepl-web'
 
 export interface TranslatorConfig {
   engine: TranslatorEngine
@@ -55,6 +55,7 @@ const translationCache = new Map<string, string>()
 
 export class TranslatorService {
   private store: TranslationStore
+  private webTranslator: any | null = null
 
   constructor(store: TranslationStore) {
     this.store = store
@@ -70,35 +71,64 @@ export class TranslatorService {
     }
   }
 
+  private async getWebTranslator(): Promise<any> {
+    if (!this.webTranslator) {
+      try {
+        const { DeepLWebTranslator } = await import('../utils/translate')
+        this.webTranslator = new DeepLWebTranslator()
+      } catch (err: any) {
+        throw new Error('DeepL Web translation requires the playwright package. Install it with: npm install playwright')
+      }
+    }
+    return this.webTranslator
+  }
+
+  isUsingFallback(): boolean {
+    const config = this.getConfig()
+    return !config.apiKey || config.engine === 'deepl-web'
+  }
+
+  getEffectiveEngine(): string {
+    const config = this.getConfig()
+    if (!config.apiKey || config.engine === 'deepl-web') {
+      return 'deepl-web (fallback)'
+    }
+    return config.engine
+  }
+
   async translateText(text: string, from: string, to: string): Promise<string> {
     const config = this.getConfig()
 
-    if (!config.apiKey) {
-      throw new Error('Translation API key not configured. Set i18nAllyPro.translatorApiKey in settings.')
-    }
+    const effectiveEngine = (!config.apiKey || config.engine === 'deepl-web')
+      ? 'deepl-web'
+      : config.engine
 
-    const cacheKey = `${config.engine}:${from}:${to}:${text}`
+    const cacheKey = `${effectiveEngine}:${from}:${to}:${text}`
     const cached = translationCache.get(cacheKey)
     if (cached) return cached
 
-    const request: TranslateRequest = { text, from, to }
-
     let result: string
-    switch (config.engine) {
-      case 'google':
-        result = await this.translateGoogle(request, config)
-        break
-      case 'deepl':
-        result = await this.translateDeepL(request, config)
-        break
-      case 'openai':
-        result = await this.translateOpenAI(request, config)
-        break
-      case 'microsoft':
-        result = await this.translateMicrosoft(request, config)
-        break
-      default:
-        throw new Error(`Unknown translator engine: ${config.engine}`)
+
+    if (effectiveEngine === 'deepl-web') {
+      result = await this.translateDeepLWeb(text, to)
+    } else {
+      const request: TranslateRequest = { text, from, to }
+      switch (config.engine) {
+        case 'google':
+          result = await this.translateGoogle(request, config)
+          break
+        case 'deepl':
+          result = await this.translateDeepL(request, config)
+          break
+        case 'openai':
+          result = await this.translateOpenAI(request, config)
+          break
+        case 'microsoft':
+          result = await this.translateMicrosoft(request, config)
+          break
+        default:
+          throw new Error(`Unknown translator engine: ${config.engine}`)
+      }
     }
 
     if (result) {
@@ -110,10 +140,18 @@ export class TranslatorService {
 
   async autoTranslateEmptyKeys(): Promise<{ translated: number; skipped: number; errors: number }> {
     const config = this.getConfig()
+    const usingFallback = !config.apiKey || config.engine === 'deepl-web'
 
-    if (!config.apiKey) {
-      window.showWarningMessage('请先配置翻译 API Key (i18nAllyPro.translatorApiKey)')
-      return { translated: 0, skipped: 0, errors: 0 }
+    if (usingFallback) {
+      const proceed = await window.showInformationMessage(
+        '未配置翻译 API Key，将使用 DeepL 网页翻译（速度较慢，需要浏览器支持）。是否继续？',
+        { modal: false },
+        '继续',
+        '取消'
+      )
+      if (proceed !== '继续') {
+        return { translated: 0, skipped: 0, errors: 0 }
+      }
     }
 
     const sourceLocale = config.sourceLanguage
@@ -127,7 +165,7 @@ export class TranslatorService {
     await window.withProgress(
       {
         location: ProgressLocation.Notification,
-        title: 'i18n Pro: Auto-translating',
+        title: `i18n Pro: Auto-translating (${usingFallback ? 'DeepL Web' : config.engine})`,
         cancellable: true,
       },
       async (progress, token) => {
@@ -174,7 +212,7 @@ export class TranslatorService {
               errors++
             }
 
-            await this.delay(200)
+            await this.delay(usingFallback ? 500 : 200)
           }
         }
       },
@@ -199,6 +237,21 @@ export class TranslatorService {
 
   clearCache() {
     translationCache.clear()
+  }
+
+  async dispose() {
+    if (this.webTranslator) {
+      try {
+        await this.webTranslator.cleanup()
+      } catch { /* ignore */ }
+      this.webTranslator = null
+    }
+  }
+
+  private async translateDeepLWeb(text: string, targetLang: string): Promise<string> {
+    const translator = await this.getWebTranslator()
+    const result = await translator.translate(text, targetLang)
+    return result.text
   }
 
   private async translateGoogle(req: TranslateRequest, config: TranslatorConfig): Promise<string> {

@@ -7,9 +7,29 @@
 ### 🔍 智能检测与导航
 
 - **零配置启动**：自动检测项目框架（Go-RPC-Gateway / Vue-i18n / React-i18next）、翻译文件格式（JSON / YAML / PO / Properties）、Key 风格（flat / nested）
-- **Hover 预览**：鼠标悬停在代码中的 i18n key 上，即时显示所有语言的翻译
+- **Hover 预览**：鼠标悬停在代码中的 i18n key 上，即时显示所有语言的翻译，带国旗图标
+- **JSON 文件 Hover**：在 JSON 翻译文件中悬浮到 value 上，显示多语言对比，支持 inline 编辑和翻译
 - **定义跳转**：右键 Go to Definition，直接跳转到翻译文件中对应 key 的位置
 - **CodeLens**：在代码中 inline 显示当前 key 的翻译状态
+
+### 🌳 侧边栏树视图
+
+- **国旗图标**：每个语言节点显示对应的国旗图标
+- **点击打开**：点击语言节点自动打开对应的 JSON 翻译文件
+- **自动刷新**：翻译文件变更时自动刷新树视图
+- **手动刷新**：标题栏刷新按钮，随时重新加载
+
+### 📝 右侧 Key 编辑器 (Key Editor Panel)
+
+![Key Editor](docs/assets/dasboard-edit.png)
+
+- **国旗图标**：每个语言行显示精美的 SVG 国旗图标（基于 flag-icons 库）
+- **多语言编辑**：同一 key 下所有语言的翻译并排编辑
+- **🤖 单 key 翻译**：点击 🤖 按钮自动翻译当前语言的缺失项
+- **📂 文件跳转**：点击 📂 按钮跳转到对应 JSON 文件的 key 所在行
+- **💾 保存**：编辑后点击 💾 保存，支持 `Ctrl+S` 快捷键
+- **🗑️ 删除**：从指定语言中删除该 key 的翻译
+- **操作反馈**：保存、翻译、删除等操作均有通知提示
 
 ### 📊 翻译矩阵 (Translation Matrix)
 
@@ -22,9 +42,16 @@
 
 ### 📈 进度仪表盘 (Progress Dashboard)
 
+![Progress Dashboard](docs/assets/dashboard.png)
+
 - **环形图**：直观展示翻译完成率（已翻译 / 空值 / 缺失）
-- **语言覆盖率统计**：每种语言的翻译进度
-- **缺失热力图**：快速定位翻译缺口
+- **语言覆盖率统计**：每种语言带 SVG 国旗图标的翻译进度条
+- **分类进度**：按 key 前缀分组统计，长 key 自动截断，悬浮显示完整
+- **缺失翻译列表**：快速定位翻译缺口，点击跳转
+- **🤖 Auto Translate 按钮**：一键批量翻译所有缺失项
+- **🔄 Refresh 按钮**：手动刷新仪表盘数据
+- **点击跳转**：分类进度和缺失项均可点击跳转到编辑器
+- **操作反馈**：按钮点击有 loading 状态和 toast 提示
 
 ### 🔄 ErrorCode 同步
 
@@ -38,12 +65,17 @@
 - 支持 **Google / DeepL / OpenAI / Microsoft** 四大翻译引擎
 - **完整语言专项支持**：中文繁体、中文简体、缅甸语、老挝语、高棉语、泰语、越南语、印尼语、马来语等
 - **翻译缓存**：避免重复调用 API，节省费用
-- **自动翻译**：保存翻译文件时自动翻译空 key（可配置）
-- **单 key 翻译**：光标定位到 key 上，一键翻译到所有缺失语言
+- **三种翻译入口**：
+  - 🤖 **Dashboard 批量翻译**：在进度仪表盘点击「🤖 Auto Translate」按钮，自动翻译所有缺失项
+  - 🤖 **右侧编辑器单 key 翻译**：在 Key Editor 中点击 🤖 按钮，翻译当前语言的缺失项
+  - 🤖 **Hover 翻译**：在代码或 JSON 文件中悬浮，点击「🤖 Translate Missing」翻译缺失语言
+- **自动翻译**：保存翻译文件时自动翻译空 key（可配置 `autoTranslateOnSave`）
+- **自定义端点**：支持配置代理或私有部署的 API 端点
 
 ### ✏️ Inline 编辑
 
 - **Code Actions**：在 Go / Vue / React 代码中，右键即可编辑翻译、翻译缺失语言
+- **Hover 编辑**：在 JSON 翻译文件中悬浮到 value，点击 ✏️ 即可 inline 编辑
 - 无需切换到翻译文件，直接在代码中完成翻译修改
 
 ### 🔧 重构工具
@@ -52,6 +84,13 @@
 - **删除 Key**：从所有语言文件中删除指定 key
 - **查找未使用 Key**：扫描代码库，找出没有被引用的翻译 key
 - **批量删除未使用 Key**：一键清理所有未使用的翻译
+- **Diff 报告**：生成翻译差异报告，查看缺失和空值详情
+
+### 🌐 国际化
+
+- **插件自身国际化**：支持中文 / 英文界面切换
+- **配置优先级**：`env.language` > `displayLanguage` 设置
+- **动态切换**：修改语言设置后自动重新加载
 
 ## 📦 安装
 
@@ -80,6 +119,26 @@ npx vsce package --allow-missing-repository
 2. 插件自动检测翻译目录、语言和框架
 3. 侧边栏出现 🌐 i18n Ally Pro 图标，展开查看翻译树
 
+### 翻译 API 配置
+
+使用机器翻译功能前，需要配置翻译 API Key。详见 [翻译 API 配置指南](docs/translator-setup.md)。
+
+快速配置（以 Google 为例）：
+
+```json
+{
+  "i18nAllyPro.translatorEngine": "google",
+  "i18nAllyPro.translatorApiKey": "YOUR_API_KEY"
+}
+```
+
+| 引擎 | 免费额度 | 申请地址 |
+|------|---------|---------|
+| **Google** | 50万字符/月 | [Google Cloud Console](https://console.cloud.google.com/) |
+| **DeepL** | 50万字符/月 | [DeepL API](https://www.deepl.com/pro#developer) |
+| **OpenAI** | 按 Token 计费 | [OpenAI Platform](https://platform.openai.com/) |
+| **Microsoft** | 200万字符/月 | [Azure Portal](https://portal.azure.com/) |
+
 ### 命令列表
 
 | 命令 | 说明 |
@@ -94,6 +153,8 @@ npx vsce package --allow-missing-repository
 | `i18n Pro: Translate Current Key` | 翻译光标处的 key |
 | `i18n Pro: Show Translation Matrix` | 打开翻译矩阵 |
 | `i18n Pro: Show Progress Dashboard` | 打开进度仪表盘 |
+| `i18n Pro: Open Key Editor` | 打开右侧 Key 编辑器 |
+| `i18n Pro: Show Diff Report` | 显示翻译差异报告 |
 | `i18n Pro: Sync Error Codes from Go` | 从 Go 文件同步 ErrorCode |
 | `i18n Pro: Add New Error Code` | 手动添加 ErrorCode |
 | `i18n Pro: Add Error Code Wizard` | ErrorCode 添加向导（自动翻译） |
@@ -120,7 +181,7 @@ npx vsce package --allow-missing-repository
 | `i18nAllyPro.displayLanguage` | `string` | `""` | 显示语言（默认同源语言） |
 | `i18nAllyPro.translatorEngine` | `string` | `"google"` | 翻译引擎：google / deepl / openai / microsoft |
 | `i18nAllyPro.translatorApiKey` | `string` | `""` | 翻译 API Key |
-| `i18nAllyPro.translatorApiEndpoint` | `string` | `""` | 自定义 API 端点 |
+| `i18nAllyPro.translatorApiEndpoint` | `string` | `""` | 自定义 API 端点（支持代理/私有部署） |
 | `i18nAllyPro.autoTranslateOnSave` | `boolean` | `false` | 保存时自动翻译空 key |
 | `i18nAllyPro.errorCodesPath` | `string` | `""` | Go ErrorCode 文件路径（留空自动检测） |
 
@@ -129,40 +190,50 @@ npx vsce package --allow-missing-repository
 ```
 i18n-ally-pro/
 ├── src/
-│   ├── extension.ts          # 插件入口
+│   ├── extension.ts              # 插件入口
+│   ├── i18n/                     # 插件自身国际化
+│   │   └── index.ts              # i18n 加载器 + 国旗映射
 │   ├── core/
-│   │   ├── store.ts          # 翻译数据存储
-│   │   ├── detector.ts       # 项目配置检测
-│   │   └── types.ts          # 类型定义
+│   │   ├── store.ts              # 翻译数据存储
+│   │   ├── detector.ts           # 项目配置检测
+│   │   └── types.ts              # 类型定义
 │   ├── providers/
-│   │   ├── hover.ts          # Hover 提供者
-│   │   ├── definition.ts     # 定义跳转提供者
-│   │   ├── diagnostic.ts     # 诊断提供者
-│   │   ├── tree.ts           # 侧边栏树视图
-│   │   ├── codelens.ts       # CodeLens 提供者
-│   │   ├── inlineEdit.ts     # Inline 编辑 CodeAction
-│   │   ├── matrixPanel.ts    # 翻译矩阵面板
-│   │   └── progressDashboard.ts  # 进度仪表盘
+│   │   ├── hover.ts              # Hover 提供者（代码 + JSON）
+│   │   ├── definition.ts         # 定义跳转提供者
+│   │   ├── diagnostic.ts         # 诊断提供者
+│   │   ├── tree.ts               # 侧边栏树视图（国旗图标 + 点击打开）
+│   │   ├── codelens.ts           # CodeLens 提供者
+│   │   ├── inlineEdit.ts         # Inline 编辑 CodeAction
+│   │   ├── keyEditorPanel.ts     # 右侧 Key 编辑器（SVG 国旗 + 🤖翻译）
+│   │   ├── matrixPanel.ts        # 翻译矩阵面板
+│   │   └── progressDashboard.ts  # 进度仪表盘（SVG 国旗 + 批量翻译）
 │   ├── services/
-│   │   ├── extraction.ts     # 文本提取服务
-│   │   ├── translator.ts     # 翻译服务（多引擎）
-│   │   ├── errorCodeSync.ts  # ErrorCode 同步服务
-│   │   └── refactor.ts       # 重构服务
+│   │   ├── extraction.ts         # 文本提取服务
+│   │   ├── translator.ts         # 翻译服务（Google/DeepL/OpenAI/Microsoft）
+│   │   ├── errorCodeSync.ts      # ErrorCode 同步服务
+│   │   └── refactor.ts           # 重构服务
 │   ├── scanners/
-│   │   ├── go.ts             # Go 代码扫描器
-│   │   ├── vue.ts            # Vue 代码扫描器
-│   │   └── react.ts          # React 代码扫描器
+│   │   ├── go.ts                 # Go 代码扫描器
+│   │   ├── vue.ts                # Vue 代码扫描器
+│   │   └── react.ts              # React 代码扫描器
 │   ├── parsers/
-│   │   ├── json.ts           # JSON 解析器
-│   │   ├── yaml.ts           # YAML 解析器
-│   │   ├── po.ts             # PO 解析器
-│   │   └── properties.ts     # Properties 解析器
+│   │   ├── json.ts               # JSON 解析器
+│   │   ├── yaml.ts               # YAML 解析器
+│   │   ├── po.ts                 # PO 解析器
+│   │   └── properties.ts         # Properties 解析器
 │   └── utils/
-│       └── slug.ts           # 工具函数
+│       └── slug.ts               # 工具函数
+├── locales/                      # 插件自身翻译文件
+│   ├── en.json                   # 英文
+│   └── zh-CN.json                # 中文
+├── docs/
+│   ├── translator-setup.md       # 翻译 API 配置指南
+│   └── assets/                   # 截图资源
 ├── package.json
 ├── tsconfig.json
 └── webpack.config.js
 ```
+
 ## 🌏 支持语言
 
 基于以下项目的翻译文件汇总，共支持 **28 种语言**：
@@ -173,36 +244,36 @@ i18n-ally-pro/
 
 ### 完整语言列表
 
-| Locale | 语言 | 所属区域 |
-|--------|------|---------|
-| `ar` | 阿拉伯语 | 中东 |
-| `bm` | 马来语 | 东南亚 |
-| `bn` | 孟加拉语 | 南亚 |
-| `de` | 德语 | 欧洲 |
-| `en` | 英语 | 全球 |
-| `es` | 西班牙语 | 欧洲/拉美 |
-| `fr` | 法语 | 欧洲 |
-| `fr-fr` | 法语 (法国) | 欧洲 |
-| `hi` | 印地语 | 南亚 |
-| `id` | 印尼语 | 东南亚 |
-| `it` | 意大利语 | 欧洲 |
-| `ja` | 日语 | 东亚 |
-| `kh` | 高棉语 (柬埔寨) | 东南亚 |
-| `ko` | 韩语 | 东亚 |
-| `lo` | 老挝语 | 东南亚 |
-| `my` | 缅甸语 | 东南亚 |
-| `nl` | 荷兰语 | 欧洲 |
-| `pt` | 葡萄牙语 | 欧洲/拉美 |
-| `pt-br` | 葡萄牙语 (巴西) | 拉美 |
-| `ru` | 俄语 | 欧洲/中亚 |
-| `sv` | 瑞典语 | 欧洲 |
-| `tc` | 繁体中文 | 东亚 |
-| `th` | 泰语 | 东南亚 |
-| `tr` | 土耳其语 | 欧洲/中东 |
-| `ur` | 乌尔都语 | 南亚 |
-| `vi` | 越南语 | 东南亚 |
-| `zh` | 简体中文 | 东亚 |
-| `zh-tw` | 繁体中文 (台湾) | 东亚 |
+| Locale | 语言 | 国旗 | 所属区域 |
+|--------|------|------|---------|
+| `ar` | 阿拉伯语 | 🇸🇦 | 中东 |
+| `bm` | 马来语 | 🇲🇾 | 东南亚 |
+| `bn` | 孟加拉语 | 🇧🇩 | 南亚 |
+| `de` | 德语 | 🇩🇪 | 欧洲 |
+| `en` | 英语 | 🇺🇸 | 全球 |
+| `es` | 西班牙语 | 🇪🇸 | 欧洲/拉美 |
+| `fr` | 法语 | 🇫🇷 | 欧洲 |
+| `fr-fr` | 法语 (法国) | 🇫🇷 | 欧洲 |
+| `hi` | 印地语 | 🇮🇳 | 南亚 |
+| `id` | 印尼语 | 🇮🇩 | 东南亚 |
+| `it` | 意大利语 | 🇮🇹 | 欧洲 |
+| `ja` | 日语 | 🇯🇵 | 东亚 |
+| `kh` | 高棉语 (柬埔寨) | 🇰🇭 | 东南亚 |
+| `ko` | 韩语 | 🇰🇷 | 东亚 |
+| `lo` | 老挝语 | 🇱🇦 | 东南亚 |
+| `my` | 缅甸语 | 🇲🇲 | 东南亚 |
+| `nl` | 荷兰语 | 🇳🇱 | 欧洲 |
+| `pt` | 葡萄牙语 | 🇵🇹 | 欧洲/拉美 |
+| `pt-br` | 葡萄牙语 (巴西) | 🇧🇷 | 拉美 |
+| `ru` | 俄语 | 🇷🇺 | 欧洲/中亚 |
+| `sv` | 瑞典语 | 🇸🇪 | 欧洲 |
+| `tc` | 繁体中文 | 🇹🇼 | 东亚 |
+| `th` | 泰语 | 🇹🇭 | 东南亚 |
+| `tr` | 土耳其语 | 🇹🇷 | 欧洲/中东 |
+| `ur` | 乌尔都语 | 🇵🇰 | 南亚 |
+| `vi` | 越南语 | 🇻🇳 | 东南亚 |
+| `zh` | 简体中文 | 🇨🇳 | 东亚 |
+| `zh-tw` | 繁体中文 (台湾) | 🇹🇼 | 东亚 |
 
 ## 📄 License
 

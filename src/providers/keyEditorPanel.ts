@@ -1,6 +1,6 @@
 import { window, ViewColumn, workspace, Uri, Selection, Position, Range } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass } from '../i18n'
+import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 
 interface EditorMessage {
   type: 'ready' | 'edit' | 'translate' | 'openFile' | 'delete'
@@ -46,8 +46,13 @@ export class KeyEditorPanel {
     switch (msg.type) {
       case 'edit': {
         if (!msg.key || !msg.locale || msg.value === undefined) return
-        await this.store.setTranslation(msg.locale, msg.key, msg.value)
-        this.update()
+        try {
+          await this.store.setTranslation(msg.locale, msg.key, msg.value)
+          this.update()
+          window.showInformationMessage(t('editor.saved', msg.key, msg.locale))
+        } catch (err: any) {
+          window.showErrorMessage(t('editor.save_failed', err.message))
+        }
         break
       }
       case 'translate': {
@@ -55,7 +60,7 @@ export class KeyEditorPanel {
         const config = this.store.projectConfig
         const sourceValue = this.store.getTranslation(config.sourceLanguage, msg.key)
         if (!sourceValue) {
-          window.showWarningMessage(`No source translation for "${msg.key}"`)
+          window.showWarningMessage(t('editor.no_source', msg.key))
           return
         }
         try {
@@ -65,9 +70,12 @@ export class KeyEditorPanel {
           if (result) {
             await this.store.setTranslation(msg.locale, msg.key, result)
             this.update()
+            window.showInformationMessage(t('editor.translated_ok', msg.key, msg.locale))
+          } else {
+            window.showWarningMessage(t('editor.translated_empty', msg.key, msg.locale))
           }
         } catch (err: any) {
-          window.showErrorMessage(`Translation failed: ${err.message}`)
+          window.showErrorMessage(t('editor.translate_failed', err.message))
         }
         break
       }
@@ -83,19 +91,26 @@ export class KeyEditorPanel {
             editor.selection = new Selection(position, position)
             editor.revealRange(new Range(position, position))
           }
+        } else {
+          window.showWarningMessage(t('editor.file_not_found', msg.key, msg.locale))
         }
         break
       }
       case 'delete': {
         if (!msg.key || !msg.locale) return
         const confirm = await window.showWarningMessage(
-          `Delete key "${msg.key}" from ${msg.locale}?`,
+          t('misc.deleted_confirm', msg.key, msg.locale),
           { modal: true },
-          'Delete',
+          t('editor.delete'),
         )
-        if (confirm === 'Delete') {
-          await this.store.deleteTranslation(msg.locale, msg.key)
-          this.update()
+        if (confirm === t('editor.delete')) {
+          try {
+            await this.store.deleteTranslation(msg.locale, msg.key)
+            this.update()
+            window.showInformationMessage(t('editor.deleted', msg.key, msg.locale))
+          } catch (err: any) {
+            window.showErrorMessage(t('editor.delete_failed', err.message))
+          }
         }
         break
       }
@@ -200,33 +215,70 @@ export class KeyEditorPanel {
     .btn-save:hover { border-color: #4CAF50; }
     .btn-translate:hover { border-color: #2196F3; }
     .btn-delete:hover { border-color: #f48771; }
+    .btn.loading { opacity: 0.5; pointer-events: none; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 8px 20px; border-radius: 6px; font-size: 13px; z-index: 9999; transition: opacity 0.3s; pointer-events: none; color: #fff; }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="key-path">${this.escHtml(key)}</div>
     <div class="stats">
-      <span class="stat ok">✅ ${locales.length - missingCount - emptyCount} translated</span>
-      ${missingCount > 0 ? `<span class="stat missing">⚠️ ${missingCount} missing</span>` : ''}
-      ${emptyCount > 0 ? `<span class="stat empty">⬜ ${emptyCount} empty</span>` : ''}
+      <span class="stat ok">✅ ${locales.length - missingCount - emptyCount} ${t('editor.translated')}</span>
+      ${missingCount > 0 ? `<span class="stat missing">⚠️ ${missingCount} ${t('editor.missing')}</span>` : ''}
+      ${emptyCount > 0 ? `<span class="stat empty">⬜ ${emptyCount} ${t('editor.empty')}</span>` : ''}
     </div>
   </div>
   <div id="locales">${rows}</div>
   <script>
+    const I18N = ${JSON.stringify({
+      saving: t('editor.saving'),
+      saved: t('editor.saved', '{0}', '{1}'),
+      translating: t('editor.translating'),
+      translated: t('editor.translated_ok', '{0}', '{1}'),
+      openingFile: t('editor.opening_file'),
+    })};
     const vscode = acquireVsCodeApi();
+
+    function showToast(msg, type) {
+      let toast = document.getElementById('toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.background = type === 'error' ? '#d32f2f' : type === 'warn' ? '#f57c00' : '#388e3c';
+      toast.style.opacity = '1';
+      setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+    }
+
+    function setBtnLoading(btn, loading) {
+      if (loading) { btn.classList.add('loading'); }
+      else { btn.classList.remove('loading'); }
+    }
 
     function saveValue(locale, key) {
       const textarea = document.querySelector(\`textarea[data-locale="\${locale}"][data-key="\${key}"]\`);
       if (!textarea) return;
+      const btn = event.currentTarget;
+      setBtnLoading(btn, true);
       vscode.postMessage({ type: 'edit', key, locale, value: textarea.value });
+      showToast(I18N.saving);
+      setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.saved.replace('{0}', key).replace('{1}', locale)); }, 800);
     }
 
     function translateKey(locale, key) {
+      const btn = event.currentTarget;
+      setBtnLoading(btn, true);
       vscode.postMessage({ type: 'translate', key, locale });
+      showToast(I18N.translating);
+      setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.translated.replace('{0}', key).replace('{1}', locale)); }, 800);
     }
 
     function openFile(locale, key) {
       vscode.postMessage({ type: 'openFile', key, locale });
+        showToast(I18N.openingFile);
     }
 
     function deleteKey(locale, key) {

@@ -10,6 +10,7 @@ import { ExtractionService } from './services/extraction'
 import { TranslatorService } from './services/translator'
 import { ErrorCodeSyncService } from './services/errorCodeSync'
 import { RefactorService } from './services/refactor'
+import { KeyDependencyService } from './services/keyDependency'
 import { TranslationMatrixPanel } from './providers/matrixPanel'
 import { ProgressDashboard } from './providers/progressDashboard'
 import { KeyEditorPanel } from './providers/keyEditorPanel'
@@ -24,6 +25,7 @@ let matrixPanel: TranslationMatrixPanel | null = null
 let progressDashboard: ProgressDashboard | null = null
 let treeProvider: I18nTreeProvider | null = null
 let keyEditorPanel: KeyEditorPanel | null = null
+let keyDependencyService: KeyDependencyService | null = null
 let diffOutputChannel: import('vscode').OutputChannel | null = null
 
 function getStore(): TranslationStore {
@@ -176,6 +178,7 @@ function registerServices(context: ExtensionContext) {
   translatorService = new TranslatorService(store)
   errorCodeSyncService = new ErrorCodeSyncService(store)
   refactorService = new RefactorService(store)
+  keyDependencyService = new KeyDependencyService(store)
   matrixPanel = new TranslationMatrixPanel(store)
   progressDashboard = new ProgressDashboard(store, () => { treeProvider?.refresh() })
 
@@ -190,15 +193,12 @@ function registerServices(context: ExtensionContext) {
 
         const autoTranslate = workspace.getConfiguration('i18nAllyPro').get<boolean>('autoTranslateOnSave', false)
         if (autoTranslate && translatorService) {
-          const translatorCfg = translatorService.getConfig()
-          if (translatorCfg.apiKey) {
-            const result = await translatorService.autoTranslateEmptyKeys()
-            if (result.translated > 0) {
-              window.showInformationMessage(`Auto-translated ${result.translated} key(s)`)
-              await store.refresh()
-              treeProvider?.refresh()
-              progressDashboard?.refresh()
-            }
+          const result = await translatorService.autoTranslateEmptyKeys()
+          if (result.translated > 0) {
+            window.showInformationMessage(`Auto-translated ${result.translated} key(s) [${translatorService.getEffectiveEngine()}]`)
+            await store.refresh()
+            treeProvider?.refresh()
+            progressDashboard?.refresh()
           }
         }
       }
@@ -285,8 +285,9 @@ function registerCommands(context: ExtensionContext) {
     }),
     commands.registerCommand('i18nAllyPro.autoTranslate', async () => {
       if (!store || !translatorService) return
+      const engine = translatorService.getEffectiveEngine()
       const result = await translatorService.autoTranslateEmptyKeys()
-      const msg = `Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`
+      const msg = `[${engine}] Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`
       if (result.errors > 0)
         window.showWarningMessage(msg)
       else
@@ -629,9 +630,17 @@ function registerCommands(context: ExtensionContext) {
       diffOutputChannel.appendLine(`   Missing: ${missing.length}, Empty: ${empty.length}`)
       diffOutputChannel.show()
     }),
+    commands.registerCommand('i18nAllyPro.showKeyDependencies', async () => {
+      if (!keyDependencyService) {
+        window.showWarningMessage('i18n Ally Pro: Please wait for initialization or refresh translations first')
+        return
+      }
+      await keyDependencyService.showDependencyGraph()
+    }),
   )
 }
 
 export function deactivate() {
   diagnosticProvider?.dispose()
+  translatorService?.dispose()
 }

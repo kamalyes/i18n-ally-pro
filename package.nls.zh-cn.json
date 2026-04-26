@@ -24,6 +24,7 @@
   "i18nAllyPro.clearTranslationCache.title": "i18n Pro: 清除翻译缓存",
   "i18nAllyPro.openKeyEditor.title": "i18n Pro: 打开 Key 编辑器",
   "i18nAllyPro.showDiffReport.title": "i18n Pro: 显示差异报告",
+  "i18nAllyPro.showKeyDependencies.title": "i18n Pro: 显示 Key 依赖图",
   "i18nAllyPro.tree.name": "翻译列表",
   "i18nAllyPro.container.title": "i18n Ally Pro",
   "i18nAllyPro.localesPaths.description": "翻译文件目录（为空时自动检测）",

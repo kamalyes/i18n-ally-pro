@@ -1,6 +1,6 @@
 import { window, ViewColumn, Uri, commands } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass } from '../i18n'
+import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 
 export class ProgressDashboard {
   private store: TranslationStore
@@ -29,9 +29,25 @@ export class ProgressDashboard {
     this.panel.onDidDispose(() => { this.panel = null })
     this.panel.webview.onDidReceiveMessage(async (msg: { type: string; category?: string; key?: string }) => {
       if (msg.type === 'refresh') {
-        await this.store.refresh()
-        this.update()
-        if (this.onRefresh) this.onRefresh()
+        try {
+          await this.store.refresh()
+          this.update()
+          if (this.onRefresh) this.onRefresh()
+          window.showInformationMessage(t('dashboard.refreshed'))
+        } catch (err: any) {
+          window.showErrorMessage(t('dashboard.refresh_failed', err.message))
+        }
+      }
+      if (msg.type === 'autoTranslate') {
+        try {
+          window.showInformationMessage(t('dashboard.auto_translate_started'))
+          await commands.executeCommand('i18nAllyPro.autoTranslate')
+          await this.store.refresh()
+          this.update()
+          if (this.onRefresh) this.onRefresh()
+        } catch (err: any) {
+          window.showErrorMessage(t('dashboard.auto_translate_failed', err.message))
+        }
       }
       if (msg.type === 'openCategory' && msg.category) {
         const keys = this.store.getAllKeys().filter(k => {
@@ -115,8 +131,8 @@ export class ProgressDashboard {
     const categoryBars = categoryData.map(cat => {
       const barColor = cat.pct === 100 ? '#4CAF50' : cat.pct > 70 ? '#FFC107' : '#f48771'
       return `
-        <div class="category-row clickable" onclick="openCategory('${this.escJs(cat.category)}')">
-          <div class="category-label">${this.escHtml(cat.category)}</div>
+        <div class="category-row clickable" onclick="openCategory('${this.escJs(cat.category)}')" title="${this.escAttr(cat.category)}">
+          <div class="category-label" title="${this.escAttr(cat.category)}">${this.escHtml(cat.category)}</div>
           <div class="category-bar-wrap">
             <div class="category-bar" style="width:${cat.pct}%;background:${barColor}"></div>
           </div>
@@ -151,9 +167,13 @@ export class ProgressDashboard {
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
     .header h1 { color: #4CAF50; font-size: 22px; }
     .header .subtitle { color: #888; font-size: 13px; }
+    .header-actions { display: flex; gap: 8px; }
     .btn-refresh { padding: 6px 14px; background: #2d2d2d; border: 1px solid #4CAF50; border-radius: 4px;
       color: #4CAF50; cursor: pointer; font-size: 13px; transition: all 0.15s; }
     .btn-refresh:hover { background: #4CAF50; color: #fff; }
+    .btn-action { padding: 6px 14px; background: #2d2d2d; border: 1px solid #2196F3; border-radius: 4px;
+      color: #2196F3; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+    .btn-action:hover { background: #2196F3; color: #fff; }
     .grid { display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
     .card { background: #252526; border: 1px solid #333; border-radius: 8px; padding: 20px; }
     .card-title { font-size: 14px; color: #888; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
@@ -178,7 +198,7 @@ export class ProgressDashboard {
     .category-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 4px 6px; border-radius: 4px; }
     .category-row.clickable { cursor: pointer; transition: background 0.15s; }
     .category-row.clickable:hover { background: #2d2d2d; }
-    .category-label { width: 140px; font-size: 12px; color: #9CDCFE; font-family: monospace; flex-shrink: 0; }
+    .category-label { width: 140px; font-size: 12px; color: #9CDCFE; font-family: monospace; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .category-bar-wrap { flex: 1; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
     .category-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
     .category-stats { width: 80px; text-align: right; flex-shrink: 0; }
@@ -203,7 +223,10 @@ export class ProgressDashboard {
         <h1>📊 i18n Progress Dashboard</h1>
         <div class="subtitle">${allKeys.length} keys × ${locales.length} locales = ${totalCells} translations</div>
       </div>
-      <button class="btn-refresh" onclick="refresh()">🔄 Refresh</button>
+      <div class="header-actions">
+        <button class="btn-action" onclick="autoTranslate()" title="Auto translate all missing keys">🤖 Auto Translate</button>
+        <button class="btn-refresh" onclick="refresh()">🔄 Refresh</button>
+      </div>
     </div>
 
     <div class="grid">
@@ -242,8 +265,54 @@ export class ProgressDashboard {
     </div>
   </div>
   <script>
+    const I18N = ${JSON.stringify({
+      refreshing: t('dashboard.refreshed'),
+      refreshFailed: t('dashboard.refresh_failed', '{0}'),
+      autoTranslating: t('dashboard.auto_translate_started'),
+      autoTranslateFailed: t('dashboard.auto_translate_failed', '{0}'),
+    })};
     const vscode = acquireVsCodeApi();
-    function refresh() { vscode.postMessage({ type: 'refresh' }); }
+
+    function showToast(msg, type) {
+      let toast = document.getElementById('toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:6px;font-size:13px;z-index:9999;transition:opacity 0.3s;pointer-events:none;color:#fff;';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.background = type === 'error' ? '#d32f2f' : type === 'warn' ? '#f57c00' : '#388e3c';
+      toast.style.opacity = '1';
+      setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+    }
+
+    function setBtnLoading(btn, loading) {
+      if (loading) {
+        btn.dataset.origText = btn.textContent;
+        btn.textContent = '⏳ ' + btn.dataset.origText;
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+      } else {
+        btn.textContent = btn.dataset.origText || btn.textContent;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
+    }
+
+    function refresh() {
+      const btn = document.querySelector('.btn-refresh');
+      setBtnLoading(btn, true);
+      vscode.postMessage({ type: 'refresh' });
+      setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.refreshing); }, 1500);
+    }
+    function autoTranslate() {
+      const btn = document.querySelector('.btn-action');
+      setBtnLoading(btn, true);
+      vscode.postMessage({ type: 'autoTranslate' });
+      showToast(I18N.autoTranslating);
+      setTimeout(() => { setBtnLoading(btn, false); }, 3000);
+    }
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
     function openKey(key) { vscode.postMessage({ type: 'openKey', key: key }); }
   </script>
@@ -322,5 +391,9 @@ export class ProgressDashboard {
 
   private escJs(s: string): string {
     return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"')
+  }
+
+  private escAttr(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   }
 }
