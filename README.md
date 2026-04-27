@@ -21,7 +21,7 @@
 
 ### 📝 右侧 Key 编辑器 (Key Editor Panel)
 
-![Key Editor](docs/assets/dasboard-edit.png)
+![Key Editor](https://cdn.jsdelivr.net/gh/kamalyes/i18n-ally-pro@master/docs/assets/dasboard-edit.png)
 
 - **国旗图标**：每个语言行显示精美的 SVG 国旗图标（基于 flag-icons 库）
 - **多语言编辑**：同一 key 下所有语言的翻译并排编辑
@@ -33,6 +33,8 @@
 
 ### 📊 翻译矩阵 (Translation Matrix)
 
+![Translation Matrix](https://cdn.jsdelivr.net/gh/kamalyes/i18n-ally-pro@master/docs/assets/translation-matrix.png)
+
 - 全语言 × 全 Key 的矩阵视图，一目了然
 - **可编辑单元格**：点击即可修改翻译
 - **筛选 / 搜索**：按关键词、语言、状态过滤
@@ -42,7 +44,7 @@
 
 ### 📈 进度仪表盘 (Progress Dashboard)
 
-![Progress Dashboard](docs/assets/dashboard.png)
+![Progress Dashboard](https://cdn.jsdelivr.net/gh/kamalyes/i18n-ally-pro@master/docs/assets/dashboard.png)
 
 - **环形图**：直观展示翻译完成率（已翻译 / 空值 / 缺失）
 - **语言覆盖率统计**：每种语言带 SVG 国旗图标的翻译进度条
@@ -78,7 +80,38 @@
 - **Hover 编辑**：在 JSON 翻译文件中悬浮到 value，点击 ✏️ 即可 inline 编辑
 - 无需切换到翻译文件，直接在代码中完成翻译修改
 
-### 🔧 重构工具
+### 🔧 Key 依赖图 (Dependency Graph)
+
+![Key Dependencies](https://cdn.jsdelivr.net/gh/kamalyes/i18n-ally-pro@master/docs/assets/key-dependencies.png)
+
+- **文件 ↔ Key 双向关联**：左侧展示代码文件，右侧展示 i18n key，连线显示引用关系
+- **引用频率排序**：按 A→Z / 频率降序 / 频率升序排列 key，快速发现核心翻译
+- **行号跳转**：点击引用项直接跳转到代码对应行
+- **📋 AI Prompt**：一键复制未引用 key 列表，交给 AI 审查清理
+- **🗑️ 批量清理**：一键删除所有未引用的 key（带确认弹窗）
+- **搜索过滤**：按关键词搜索文件和 key
+
+### 🔀 翻译 Diff 视图
+
+- **源语言对比**：以源语言为基准，对比所有目标语言的翻译差异
+- **状态标记**：MISS（缺失）/ EMPTY（空值）/ DIFF（不同）/ ✅（一致）
+- **筛选过滤**：按缺失、空值、不同状态筛选
+- **点击跳转**：点击 key 可跳转到对应翻译文件
+
+### 💡 自动补全
+
+- **智能补全**：在 Go / Vue / React 代码中输入 i18n key 时自动弹出补全列表
+- **多语言预览**：补全项显示所有语言的翻译值
+- **优先排序**：有翻译值的 key 排在前面
+
+### 📊 Status Bar 状态
+
+- **实时进度**：底部状态栏显示翻译完成度百分比
+- **图标提示**：100% ✅ / ≥80% 🌐 / <80% ⚠️
+- **悬浮详情**：鼠标悬浮显示 key 数量、语言数、缺失翻译数
+- **点击跳转**：点击打开 Progress Dashboard
+
+### 🔧  重构工具
 
 - **重命名 Key**：全局替换 i18n key，同时更新翻译文件和代码引用
 - **删除 Key**：从所有语言文件中删除指定 key
@@ -105,8 +138,10 @@
 ```bash
 git clone https://github.com/kamalyes/i18n-ally-pro.git
 cd i18n-ally-pro
+nvm install 20.20.2
+npm install -g npm@11.13.0
 npm install
-npm run package
+npm run package # Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 # 生成的 .vsix 文件在项目根目录
 npx vsce package --allow-missing-repository
 ```
@@ -154,7 +189,8 @@ npx vsce package --allow-missing-repository
 | `i18n Pro: Show Translation Matrix` | 打开翻译矩阵 |
 | `i18n Pro: Show Progress Dashboard` | 打开进度仪表盘 |
 | `i18n Pro: Open Key Editor` | 打开右侧 Key 编辑器 |
-| `i18n Pro: Show Diff Report` | 显示翻译差异报告 |
+| `i18n Pro: Show Diff Report` | 显示翻译差异报告（可视化 Diff 视图） |
+| `i18n Pro: Show Key Dependencies` | 显示 Key 依赖图 |
 | `i18n Pro: Sync Error Codes from Go` | 从 Go 文件同步 ErrorCode |
 | `i18n Pro: Add New Error Code` | 手动添加 ErrorCode |
 | `i18n Pro: Add Error Code Wizard` | ErrorCode 添加向导（自动翻译） |
@@ -203,15 +239,19 @@ i18n-ally-pro/
 │   │   ├── diagnostic.ts         # 诊断提供者
 │   │   ├── tree.ts               # 侧边栏树视图（国旗图标 + 点击打开）
 │   │   ├── codelens.ts           # CodeLens 提供者
+│   │   ├── completion.ts         # 自动补全提供者
 │   │   ├── inlineEdit.ts         # Inline 编辑 CodeAction
 │   │   ├── keyEditorPanel.ts     # 右侧 Key 编辑器（SVG 国旗 + 🤖翻译）
 │   │   ├── matrixPanel.ts        # 翻译矩阵面板
-│   │   └── progressDashboard.ts  # 进度仪表盘（SVG 国旗 + 批量翻译）
+│   │   ├── progressDashboard.ts  # 进度仪表盘（SVG 国旗 + 批量翻译）
+│   │   └── diffViewPanel.ts      # 翻译 Diff 视图面板
 │   ├── services/
 │   │   ├── extraction.ts         # 文本提取服务
 │   │   ├── translator.ts         # 翻译服务（Google/DeepL/OpenAI/Microsoft）
 │   │   ├── errorCodeSync.ts      # ErrorCode 同步服务
-│   │   └── refactor.ts           # 重构服务
+│   │   ├── refactor.ts           # 重构服务
+│   │   ├── keyDependency.ts      # Key 依赖图服务（频率统计 + 批量清理）
+│   │   └── statusBar.ts          # Status Bar 状态服务
 │   ├── scanners/
 │   │   ├── go.ts                 # Go 代码扫描器
 │   │   ├── vue.ts                # Vue 代码扫描器

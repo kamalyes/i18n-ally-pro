@@ -125,7 +125,7 @@ export class KeyDependencyService {
 
     panel.webview.html = this.getGraphHtml(graphData, allKeys.length, referencedKeys.length, unreferencedKeys.length)
 
-    panel.webview.onDidReceiveMessage(async (msg: { type: string; file?: string; line?: number; column?: number; prompt?: string }) => {
+    panel.webview.onDidReceiveMessage(async (msg: { type: string; file?: string; line?: number; column?: number; prompt?: string; keys?: string[] }) => {
       if (msg.type === 'openFile' && msg.file) {
         const path = require('path')
         const absPath = path.join(rootPath, msg.file)
@@ -145,6 +145,23 @@ export class KeyDependencyService {
       } else if (msg.type === 'copyPrompt' && msg.prompt) {
         await env.clipboard.writeText(msg.prompt)
         window.showInformationMessage('✅ AI prompt copied to clipboard')
+      } else if (msg.type === 'deleteUnrefKeys' && msg.keys && msg.keys.length > 0) {
+        const confirm = await window.showWarningMessage(
+          `Delete ${msg.keys.length} unreferenced keys from all locales?`,
+          { modal: true },
+          'Delete',
+        )
+        if (confirm === 'Delete') {
+          let deleted = 0
+          for (const key of msg.keys) {
+            for (const locale of this.store.locales) {
+              await this.store.deleteTranslation(locale, key)
+            }
+            deleted++
+          }
+          window.showInformationMessage(`✅ Deleted ${deleted} unreferenced keys`)
+          panel.dispose()
+        }
       }
     })
   }
@@ -224,6 +241,12 @@ body{background:var(--vscode-editor-background);color:var(--vscode-editor-foregr
   <button class="btn" id="btnFile" onclick="setFilter('file')">Files</button>
   <button class="btn" id="btnKey" onclick="setFilter('key')">Keys</button>
   <button class="btn" id="btnCopyPrompt" onclick="copyAIPrompt()" title="Copy AI prompt for unreferenced keys">📋 AI Prompt</button>
+  <button class="btn" id="btnDeleteUnref" onclick="deleteUnrefKeys()" title="Delete all unreferenced keys" style="background:color-mix(in srgb,var(--vscode-charts-red) 30%,transparent);color:var(--vscode-charts-red)">🗑️ Clean</button>
+  <select id="sortSelect" onchange="changeSort()" style="background:var(--vscode-input-background);border:1px solid var(--vscode-input-border);border-radius:3px;padding:2px 6px;color:var(--vscode-input-foreground);font-size:10px">
+    <option value="alpha">A→Z</option>
+    <option value="freq">Freq ↓</option>
+    <option value="freqAsc">Freq ↑</option>
+  </select>
 </div>
 <div class="main" id="main"></div>
 <div class="detail-panel" id="detailPanel">
@@ -237,7 +260,7 @@ body{background:var(--vscode-editor-background);color:var(--vscode-editor-foregr
 <script>
 const DATA=${dataJson};
 const VS=acquireVsCodeApi();
-let currentFilter='all',selectedId=null,searchTerm='';
+let currentFilter='all',selectedId=null,searchTerm='',currentSort='alpha';
 
 const fileNodes=DATA.nodes.filter(n=>n.group==='file');
 const keyNodes=DATA.nodes.filter(n=>n.group==='key');
@@ -294,7 +317,7 @@ function render(){
     const filtered=allKeyNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm));
     const sec=mkSection('🔑 Referenced Keys','('+keyNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm)).length+')','key-section',false);
     const body=sec.querySelector('.section-body');
-    const filteredRef=keyNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm));
+    const filteredRef=sortNodes(keyNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm)));
     if(filteredRef.length===0){
       body.innerHTML='<div class="empty-hint">No referenced keys</div>';
     }else{
@@ -313,7 +336,7 @@ function render(){
     if(showFiles){
       const sec2=mkSection('⚠️ Unreferenced Keys','('+unrefNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm)).length+')','unref-section',false);
       const body2=sec2.querySelector('.section-body');
-      const filteredUnref=unrefNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm));
+      const filteredUnref=sortNodes(unrefNodes.filter(n=>!searchTerm||n.id.toLowerCase().includes(searchTerm)));
       if(filteredUnref.length===0){
         body2.innerHTML='<div class="empty-hint">No unreferenced keys ✅</div>';
       }else{
@@ -398,6 +421,42 @@ function copyAIPrompt(){
   VS.postMessage({type:'copyPrompt',prompt:prompt});
   document.getElementById('btnCopyPrompt').textContent='✅ Copied!';
   setTimeout(()=>{document.getElementById('btnCopyPrompt').textContent='📋 AI Prompt';},2000);
+}
+
+function deleteUnrefKeys(){
+  if(unrefNodes.length===0){
+    document.getElementById('btnDeleteUnref').textContent='✅ No unref';
+    setTimeout(()=>{document.getElementById('btnDeleteUnref').textContent='🗑️ Clean';},1500);
+    return;
+  }
+  const keys=unrefNodes.map(n=>n.id);
+  VS.postMessage({type:'deleteUnrefKeys',keys:keys});
+  document.getElementById('btnDeleteUnref').textContent='⏳ Deleting...';
+}
+
+function changeSort(){
+  currentSort=document.getElementById('sortSelect').value;
+  render();
+}
+
+function sortNodes(nodes){
+  const sorted=[...nodes];
+  if(currentSort==='freq'){
+    sorted.sort((a,b)=>{
+      const ra=(keyToRefs[a.id]||[]).length;
+      const rb=(keyToRefs[b.id]||[]).length;
+      return rb-ra||a.id.localeCompare(b.id);
+    });
+  }else if(currentSort==='freqAsc'){
+    sorted.sort((a,b)=>{
+      const ra=(keyToRefs[a.id]||[]).length;
+      const rb=(keyToRefs[b.id]||[]).length;
+      return ra-rb||a.id.localeCompare(b.id);
+    });
+  }else{
+    sorted.sort((a,b)=>a.id.localeCompare(b.id));
+  }
+  return sorted;
 }
 
 function setFilter(type){

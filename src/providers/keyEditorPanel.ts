@@ -92,7 +92,7 @@ export class KeyEditorPanel {
             editor.revealRange(new Range(position, position))
           }
         } else {
-          window.showWarningMessage(t('editor.file_not_found', msg.key, msg.locale))
+          window.showWarningMessage(t('editor.file_not_found', msg.key))
         }
         break
       }

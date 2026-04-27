@@ -180,7 +180,7 @@ export class I18nHoverProvider implements HoverProvider {
       const localeLabel = isSource ? `**${locale}**` : locale
       const displayValue = isMissing
         ? '⚠️ *(missing)*'
-        : `\`${value!.length > 50 ? value!.slice(0, 50) + '…' : value!}\``
+        : `\`${value!.length > 120 ? value!.slice(0, 120) + '…' : value!}\``
 
       contents.appendMarkdown(`| ${flag} | ${localeLabel} | ${displayValue} |\n`)
     }
@@ -243,7 +243,7 @@ export class I18nHoverProvider implements HoverProvider {
       const localeLabel = isSource ? `**${locale}**` : locale
       const displayValue = isMissing
         ? '⚠️ *(missing)*'
-        : `\`${value!.length > 40 ? value!.slice(0, 40) + '…' : value!}\``
+        : `\`${value!.length > 80 ? value!.slice(0, 80) + '…' : value!}\``
 
       const editCmd = `[\✏️](command:i18nAllyPro.inlineEdit?${encodeURIComponent(JSON.stringify([key, locale]))})`
       const goCmd = isCurrent ? '' : ` [\📂](command:i18nAllyPro.openKeyAndFile?${encodeURIComponent(JSON.stringify([key, locale]))})`

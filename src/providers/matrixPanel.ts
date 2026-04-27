@@ -78,10 +78,12 @@ export class TranslationMatrixPanel {
         const { TranslatorService } = await import('../services/translator')
         const translator = new TranslatorService(this.store)
         const result = await translator.autoTranslateEmptyKeys()
+        const emoji = result.errors > 0 ? '⚠️' : '✅'
         window.showInformationMessage(
-          `Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`,
+          `${emoji} Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`,
         )
         this.update()
+        this.panel?.webview.postMessage({ type: 'translateDone', translated: result.translated, errors: result.errors })
         break
       }
       case 'deleteKey': {
@@ -284,6 +286,13 @@ export class TranslationMatrixPanel {
     }
 
     function translateAllMissing() {
+      const btn = document.querySelector('.btn-primary');
+      if (btn && btn.disabled) return;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Translating...';
+        btn.style.opacity = '0.7';
+      }
       vscode.postMessage({ type: 'translateAllMissing' });
     }
 
@@ -294,6 +303,21 @@ export class TranslationMatrixPanel {
     function exportCsv() {
       vscode.postMessage({ type: 'exportCsv' });
     }
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'translateDone') {
+        const btn = document.querySelector('.btn-primary');
+        if (btn) {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.textContent = msg.translated > 0 ? '✅ Done!' : '🤖 Translate All Missing';
+          if (msg.translated > 0) {
+            setTimeout(() => { btn.textContent = '🤖 Translate All Missing'; }, 3000);
+          }
+        }
+      }
+    });
 
     function filterTable(query) {
       query = query.toLowerCase();

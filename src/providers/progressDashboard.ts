@@ -40,13 +40,14 @@ export class ProgressDashboard {
       }
       if (msg.type === 'autoTranslate') {
         try {
-          window.showInformationMessage(t('dashboard.auto_translate_started'))
           await commands.executeCommand('i18nAllyPro.autoTranslate')
           await this.store.refresh()
           this.update()
           if (this.onRefresh) this.onRefresh()
+          this.panel?.webview.postMessage({ type: 'translateDone' })
         } catch (err: any) {
           window.showErrorMessage(t('dashboard.auto_translate_failed', err.message))
+          this.panel?.webview.postMessage({ type: 'translateDone', error: true })
         }
       }
       if (msg.type === 'openCategory' && msg.category) {
@@ -308,11 +309,19 @@ export class ProgressDashboard {
     }
     function autoTranslate() {
       const btn = document.querySelector('.btn-action');
+      if (btn && btn.disabled) return;
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'autoTranslate' });
       showToast(I18N.autoTranslating);
-      setTimeout(() => { setBtnLoading(btn, false); }, 3000);
     }
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'translateDone') {
+        const btn = document.querySelector('.btn-action');
+        setBtnLoading(btn, false);
+        showToast(msg.error ? '❌ Translate failed' : '✅ Translate complete');
+      }
+    });
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
     function openKey(key) { vscode.postMessage({ type: 'openKey', key: key }); }
   </script>

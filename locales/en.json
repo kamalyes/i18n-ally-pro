@@ -44,7 +44,7 @@
     "delete_failed": "Delete failed - {0}",
     "deleted": "Deleted \"{0}\" from {1}",
     "empty": "empty",
-    "file_not_found": "File not found for \"{0}\" in {1}",
+    "file_not_found": "File not found: {0}",
     "missing": "missing",
     "missing_placeholder": "Missing translation...",
     "no_source": "No source translation for \"{0}\"",

@@ -6,14 +6,17 @@ import { I18nDiagnosticProvider } from './providers/diagnostic'
 import { I18nTreeProvider } from './providers/tree'
 import { I18nCodeLensProvider } from './providers/codelens'
 import { I18nInlineEditProvider } from './providers/inlineEdit'
+import { I18nCompletionProvider } from './providers/completion'
 import { ExtractionService } from './services/extraction'
 import { TranslatorService } from './services/translator'
 import { ErrorCodeSyncService } from './services/errorCodeSync'
 import { RefactorService } from './services/refactor'
 import { KeyDependencyService } from './services/keyDependency'
+import { StatusBarService } from './services/statusBar'
 import { TranslationMatrixPanel } from './providers/matrixPanel'
 import { ProgressDashboard } from './providers/progressDashboard'
 import { KeyEditorPanel } from './providers/keyEditorPanel'
+import { DiffViewPanel } from './providers/diffViewPanel'
 import { initI18n, reloadI18n, getCurrentLanguage, t } from './i18n'
 
 let store: TranslationStore | null = null
@@ -26,6 +29,7 @@ let progressDashboard: ProgressDashboard | null = null
 let treeProvider: I18nTreeProvider | null = null
 let keyEditorPanel: KeyEditorPanel | null = null
 let keyDependencyService: KeyDependencyService | null = null
+let diffViewPanel: DiffViewPanel | null = null
 let diffOutputChannel: import('vscode').OutputChannel | null = null
 
 function getStore(): TranslationStore {
@@ -149,6 +153,7 @@ function registerProviders(context: ExtensionContext) {
   diagnosticProvider = new I18nDiagnosticProvider(store)
   const codeLensProvider = new I18nCodeLensProvider(store)
   const inlineEditProvider = new I18nInlineEditProvider(store)
+  const completionProvider = new I18nCompletionProvider(store)
 
   const selector = [
     { scheme: 'file', language: 'go' },
@@ -168,6 +173,7 @@ function registerProviders(context: ExtensionContext) {
     languages.registerCodeActionsProvider(selector, inlineEditProvider, {
       providedCodeActionKinds: [CodeActionKind.QuickFix],
     }),
+    languages.registerCompletionItemProvider(selector, completionProvider, '"', "'", '`'),
   )
 }
 
@@ -181,6 +187,10 @@ function registerServices(context: ExtensionContext) {
   keyDependencyService = new KeyDependencyService(store)
   matrixPanel = new TranslationMatrixPanel(store)
   progressDashboard = new ProgressDashboard(store, () => { treeProvider?.refresh() })
+  diffViewPanel = new DiffViewPanel(store)
+
+  const statusBarService = new StatusBarService(store)
+  context.subscriptions.push(statusBarService)
 
   context.subscriptions.push(
     workspace.onDidSaveTextDocument(async (doc) => {
@@ -578,57 +588,8 @@ function registerCommands(context: ExtensionContext) {
       keyEditorPanel.show(keypath)
     }),
     commands.registerCommand('i18nAllyPro.showDiffReport', async () => {
-      if (!store || !diffOutputChannel) return
-      const diags = store.getDiagnostics()
-      const missing = diags.filter(d => d.type === 'missing')
-      const empty = diags.filter(d => d.type === 'empty')
-
-      diffOutputChannel.clear()
-      diffOutputChannel.appendLine('═══════════════════════════════════════════════')
-      diffOutputChannel.appendLine('  i18n Ally Pro - Translation Diff Report')
-      diffOutputChannel.appendLine('═══════════════════════════════════════════════')
-      diffOutputChannel.appendLine('')
-
-      if (missing.length > 0) {
-        diffOutputChannel.appendLine(`🔴 Missing translations (${missing.length}):`)
-        diffOutputChannel.appendLine('───────────────────────────────────────────────')
-        const grouped = new Map<string, string[]>()
-        for (const d of missing) {
-          if (!grouped.has(d.key)) grouped.set(d.key, [])
-          if (d.locale) grouped.get(d.key)!.push(d.locale)
-        }
-        for (const [key, locales] of grouped) {
-          diffOutputChannel.appendLine(`  Key: ${key}`)
-          diffOutputChannel.appendLine(`    Missing in: ${locales.join(', ')}`)
-          const srcVal = store.getTranslation(store.projectConfig.sourceLanguage, key)
-          if (srcVal) diffOutputChannel.appendLine(`    Source (${store.projectConfig.sourceLanguage}): ${srcVal}`)
-          diffOutputChannel.appendLine('')
-        }
-      }
-
-      if (empty.length > 0) {
-        diffOutputChannel.appendLine(`🟡 Empty translations (${empty.length}):`)
-        diffOutputChannel.appendLine('───────────────────────────────────────────────')
-        const grouped = new Map<string, string[]>()
-        for (const d of empty) {
-          if (!grouped.has(d.key)) grouped.set(d.key, [])
-          if (d.locale) grouped.get(d.key)!.push(d.locale)
-        }
-        for (const [key, locales] of grouped) {
-          diffOutputChannel.appendLine(`  Key: ${key}`)
-          diffOutputChannel.appendLine(`    Empty in: ${locales.join(', ')}`)
-          diffOutputChannel.appendLine('')
-        }
-      }
-
-      if (missing.length === 0 && empty.length === 0) {
-        diffOutputChannel.appendLine('✅ All translations are complete!')
-      }
-
-      diffOutputChannel.appendLine('')
-      diffOutputChannel.appendLine(`📊 Summary: ${store.locales.length} locales, ${store.getAllKeys().length} keys`)
-      diffOutputChannel.appendLine(`   Missing: ${missing.length}, Empty: ${empty.length}`)
-      diffOutputChannel.show()
+      if (!diffViewPanel) return
+      diffViewPanel.show()
     }),
     commands.registerCommand('i18nAllyPro.showKeyDependencies', async () => {
       if (!keyDependencyService) {

@@ -44,7 +44,7 @@
     "delete_failed": "删除失败 - {0}",
     "deleted": "已从 {1} 中删除 \"{0}\"",
     "empty": "空",
-    "file_not_found": "未找到 {1} 中 \"{0}\" 的文件",
+    "file_not_found": "未找到文件: {0}",
     "missing": "缺失",
     "missing_placeholder": "缺少翻译...",
     "no_source": "\"{0}\" 没有源语言翻译",
