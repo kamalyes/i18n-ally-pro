@@ -69,15 +69,22 @@ class I18n {
     let localeFlags: Record<string, string> = {}
     let localeNames: Record<string, string> = {}
 
-    for (const [key, value] of Object.entries(raw)) {
-      if (key === 'localeFlags' && typeof value === 'object' && value !== null) {
-        localeFlags = value as Record<string, string>
-      } else if (key === 'localeNames' && typeof value === 'object' && value !== null) {
-        localeNames = value as Record<string, string>
-      } else if (typeof value === 'string') {
-        messages[key] = value
+    const flatten = (obj: any, prefix = '') => {
+      for (const [key, value] of Object.entries(obj)) {
+        const fullKey = prefix ? `${prefix}.${key}` : key
+        if (key === 'localeFlags' && !prefix && typeof value === 'object' && value !== null) {
+          localeFlags = value as Record<string, string>
+        } else if (key === 'localeNames' && !prefix && typeof value === 'object' && value !== null) {
+          localeNames = value as Record<string, string>
+        } else if (typeof value === 'string') {
+          messages[fullKey] = value
+        } else if (typeof value === 'object' && value !== null) {
+          flatten(value, fullKey)
+        }
       }
     }
+
+    flatten(raw)
 
     return { messages, localeFlags, localeNames }
   }

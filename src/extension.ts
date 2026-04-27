@@ -14,7 +14,7 @@ import { KeyDependencyService } from './services/keyDependency'
 import { TranslationMatrixPanel } from './providers/matrixPanel'
 import { ProgressDashboard } from './providers/progressDashboard'
 import { KeyEditorPanel } from './providers/keyEditorPanel'
-import { initI18n, reloadI18n, getCurrentLanguage } from './i18n'
+import { initI18n, reloadI18n, getCurrentLanguage, t } from './i18n'
 
 let store: TranslationStore | null = null
 let diagnosticProvider: I18nDiagnosticProvider | null = null
@@ -63,7 +63,7 @@ export async function activate(context: ExtensionContext) {
   catch (err: any) {
     outputChannel.appendLine(`i18n Ally Pro: Initialization failed - ${err.message}`)
     outputChannel.show()
-    window.showWarningMessage(`i18n Ally Pro: 初始化失败 - ${err.message}。请检查翻译文件目录配置。`)
+    window.showWarningMessage(t('misc.init_failed', err.message))
   }
 
   if (initialized) {
@@ -91,16 +91,16 @@ export async function activate(context: ExtensionContext) {
         }
         await store!.refresh()
         treeProvider!.refresh()
-        window.showInformationMessage('i18n Ally Pro: Translations refreshed')
+        window.showInformationMessage(t('misc.refreshed'))
       }
       catch (err: any) {
-        window.showErrorMessage(`i18n Ally Pro: Refresh failed - ${err.message}`)
+        window.showErrorMessage(t('misc.refresh_failed', err.message))
       }
     }),
     commands.registerCommand('i18nAllyPro.copyKey', async (key?: string) => {
       if (key) {
         await commands.executeCommand('copy', key)
-        window.showInformationMessage(`Copied: ${key}`)
+        window.showInformationMessage(t('misc.copied', key))
       }
     }),
     commands.registerCommand('i18nAllyPro.openKeyAndFile', async (key?: string, locale?: string) => {
@@ -135,7 +135,7 @@ export async function activate(context: ExtensionContext) {
       if (e.affectsConfiguration('i18nAllyPro.displayLanguage')) {
         reloadI18n()
         treeProvider?.refresh()
-        window.showInformationMessage(`i18n Ally Pro: Language changed to ${getCurrentLanguage()}`)
+        window.showInformationMessage(t('misc.language_changed', getCurrentLanguage()))
       }
     }),
   )
@@ -195,7 +195,7 @@ function registerServices(context: ExtensionContext) {
         if (autoTranslate && translatorService) {
           const result = await translatorService.autoTranslateEmptyKeys()
           if (result.translated > 0) {
-            window.showInformationMessage(`Auto-translated ${result.translated} key(s) [${translatorService.getEffectiveEngine()}]`)
+            window.showInformationMessage(t('misc.auto_translated', result.translated, translatorService.getEffectiveEngine()))
             await store.refresh()
             treeProvider?.refresh()
             progressDashboard?.refresh()
@@ -280,14 +280,14 @@ function registerCommands(context: ExtensionContext) {
       const missing = diags.filter(d => d.type === 'missing')
       const empty = diags.filter(d => d.type === 'empty')
       window.showInformationMessage(
-        `i18n Pro: ${missing.length} missing, ${empty.length} empty translations`,
+        t('misc.diagnostics_summary', missing.length, empty.length),
       )
     }),
     commands.registerCommand('i18nAllyPro.autoTranslate', async () => {
       if (!store || !translatorService) return
       const engine = translatorService.getEffectiveEngine()
       const result = await translatorService.autoTranslateEmptyKeys()
-      const msg = `[${engine}] Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`
+      const msg = t('misc.translate_result', engine, result.translated, result.skipped, result.errors)
       if (result.errors > 0)
         window.showWarningMessage(msg)
       else
@@ -317,7 +317,7 @@ function registerCommands(context: ExtensionContext) {
       }
 
       if (!matchedKey) {
-        window.showWarningMessage('No i18n key found at cursor position')
+        window.showWarningMessage(t('misc.no_key_at_cursor'))
         return
       }
 
@@ -327,7 +327,7 @@ function registerCommands(context: ExtensionContext) {
       })
 
       if (targetLocales.length === 0) {
-        window.showInformationMessage(`Key "${matchedKey}" already has translations in all locales`)
+        window.showInformationMessage(t('misc.already_translated', matchedKey))
         return
       }
 
@@ -340,7 +340,7 @@ function registerCommands(context: ExtensionContext) {
         }
       }
 
-      window.showInformationMessage(`Translated "${matchedKey}" to ${translated} locale(s)`)
+      window.showInformationMessage(t('misc.translated_key', matchedKey, translated))
       treeProvider?.refresh()
     }),
     commands.registerCommand('i18nAllyPro.syncErrorCodes', async (uri?: Uri) => {
@@ -348,13 +348,13 @@ function registerCommands(context: ExtensionContext) {
       if (uri) {
         const result = await errorCodeSyncService.syncFromGoFile(uri.fsPath)
         window.showInformationMessage(
-          `Synced from ${uri.fsPath}: ${result.added} added, ${result.skipped} existing, ${result.errors} errors`,
+          t('misc.synced', uri.fsPath, result.added, result.skipped, result.errors),
         )
       }
       else {
         const result = await errorCodeSyncService.syncAllGoFiles()
         window.showInformationMessage(
-          `Synced ${result.files} file(s): ${result.added} added, ${result.skipped} existing, ${result.errors} errors`,
+          t('misc.synced_all', result.files, result.added, result.skipped, result.errors),
         )
       }
       await store.refresh()
@@ -383,7 +383,7 @@ function registerCommands(context: ExtensionContext) {
       const success = await errorCodeSyncService.addNewErrorCode(constName, keyValue, zhDescription)
       if (success) {
         window.showInformationMessage(
-          `Added: ${constName} = "${keyValue}" → zh: "${zhDescription}"`,
+          t('misc.added', constName, keyValue, zhDescription),
         )
         await store.refresh()
         treeProvider?.refresh()
@@ -447,7 +447,7 @@ function registerCommands(context: ExtensionContext) {
       }
       if (!keyValue) return
       const found = await errorCodeSyncService.goToGoConst(keyValue)
-      if (!found) window.showWarningMessage(`Go const for "${keyValue}" not found`)
+      if (!found) window.showWarningMessage(t('misc.not_found', keyValue))
     }),
     commands.registerCommand('i18nAllyPro.goToJsonKey', async (keyValue?: string) => {
       if (!store || !errorCodeSyncService) return
@@ -463,7 +463,7 @@ function registerCommands(context: ExtensionContext) {
       if (!locale) return
 
       const found = await errorCodeSyncService.goToJsonKey(keyValue, locale)
-      if (!found) window.showWarningMessage(`JSON key "${keyValue}" in ${locale} not found`)
+      if (!found) window.showWarningMessage(t('misc.json_not_found', keyValue, locale))
     }),
     commands.registerCommand('i18nAllyPro.inlineEdit', async (key?: string, locale?: string) => {
       if (!store || !key || !locale) return
@@ -474,7 +474,7 @@ function registerCommands(context: ExtensionContext) {
       })
       if (newValue !== undefined) {
         await store.setTranslation(locale, key, newValue)
-        window.showInformationMessage(`Updated "${key}" in ${locale}`)
+        window.showInformationMessage(t('misc.updated', key, locale))
       }
     }),
     commands.registerCommand('i18nAllyPro.inlineTranslate', async (key?: string, locales?: string[]) => {
@@ -482,7 +482,7 @@ function registerCommands(context: ExtensionContext) {
       const config = store.projectConfig
       const sourceValue = store.getTranslation(config.sourceLanguage, key)
       if (!sourceValue) {
-        window.showWarningMessage(`No source translation for "${key}"`)
+        window.showWarningMessage(t('misc.no_source', key))
         return
       }
 
@@ -495,11 +495,11 @@ function registerCommands(context: ExtensionContext) {
             translated++
           }
         } catch (err: any) {
-          window.showErrorMessage(`Translation to ${locale} failed: ${err.message}`)
+          window.showErrorMessage(t('misc.translation_failed', locale, err.message))
         }
       }
 
-      window.showInformationMessage(`Translated "${key}" to ${translated} locale(s)`)
+      window.showInformationMessage(t('misc.translated_key', key, translated))
     }),
     commands.registerCommand('i18nAllyPro.renameKey', async () => {
       if (!store || !refactorService) return
@@ -516,7 +516,7 @@ function registerCommands(context: ExtensionContext) {
       if (!newKey || newKey === oldKey) return
 
       const result = await refactorService.renameKey(oldKey, newKey)
-      window.showInformationMessage(`Renamed: ${result.files} files, ${result.replacements} replacements`)
+      window.showInformationMessage(t('misc.renamed', result.files, result.replacements))
       await store.refresh()
       treeProvider?.refresh()
     }),
@@ -529,7 +529,7 @@ function registerCommands(context: ExtensionContext) {
       if (!key) return
 
       const result = await refactorService.deleteKey(key)
-      window.showInformationMessage(`Deleted from ${result.files} locale files`)
+      window.showInformationMessage(t('misc.deleted', result.files))
       await store.refresh()
       treeProvider?.refresh()
     }),
@@ -537,7 +537,7 @@ function registerCommands(context: ExtensionContext) {
       if (!store || !refactorService) return
       const unusedKeys = await refactorService.findUnusedKeys()
       if (unusedKeys.length === 0) {
-        window.showInformationMessage('✅ No unused keys found!')
+        window.showInformationMessage(t('misc.no_unused'))
         return
       }
 
@@ -550,7 +550,7 @@ function registerCommands(context: ExtensionContext) {
       }
       outputChannel.show()
 
-      window.showInformationMessage(`Found ${unusedKeys.length} unused keys. See output panel for details.`)
+      window.showInformationMessage(t('misc.unused_found', unusedKeys.length))
     }),
     commands.registerCommand('i18nAllyPro.deleteUnusedKeys', async () => {
       if (!store || !refactorService) return
@@ -558,13 +558,13 @@ function registerCommands(context: ExtensionContext) {
       if (result.deleted > 0) {
         await store.refresh()
         treeProvider?.refresh()
-        window.showInformationMessage(`Deleted ${result.deleted} unused keys, skipped ${result.skipped}`)
+        window.showInformationMessage(t('misc.deleted_unused', result.deleted, result.skipped))
       }
     }),
     commands.registerCommand('i18nAllyPro.clearTranslationCache', () => {
       if (!translatorService) return
       translatorService.clearCache()
-      window.showInformationMessage('Translation cache cleared')
+      window.showInformationMessage(t('misc.cache_cleared'))
     }),
     commands.registerCommand('i18nAllyPro.openKeyEditor', async (keypath?: string) => {
       if (!store || !keyEditorPanel) return
@@ -632,7 +632,7 @@ function registerCommands(context: ExtensionContext) {
     }),
     commands.registerCommand('i18nAllyPro.showKeyDependencies', async () => {
       if (!keyDependencyService) {
-        window.showWarningMessage('i18n Ally Pro: Please wait for initialization or refresh translations first')
+        window.showWarningMessage(t('misc.not_initialized'))
         return
       }
       await keyDependencyService.showDependencyGraph()
