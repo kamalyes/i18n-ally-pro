@@ -278,7 +278,7 @@ DATA.links.forEach(l=>{
   keyToRefs[tid].push({file:sid,line:l.line,column:l.column});
 });
 
-function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 function splitPath(id){
   const idx=id.lastIndexOf('/');
