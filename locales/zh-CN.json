@@ -57,10 +57,10 @@
     "source": "源语言",
     "title": "Key 编辑器",
     "translate": "自动翻译",
-    "translated": "已翻译",
-    "translated_ok": "已将 \"{0}\" 翻译为 {1}",
-    "translated_empty": "\"{0}\" 翻译到 {1} 返回为空",
     "translate_failed": "翻译失败: {0}",
+    "translated": "已翻译",
+    "translated_empty": "\"{0}\" 翻译到 {1} 返回为空",
+    "translated_ok": "已将 \"{0}\" 翻译为 {1}",
     "translating": "正在翻译..."
   },
   "localeFlags": {
@@ -159,9 +159,11 @@
   },
   "misc": {
     "added": "已添加: {0} = \"{1}\" → zh: \"{2}\"",
+    "all_keys_complete": "所有语言的 key 已齐全，无需补全！",
     "already_translated": "Key \"{0}\" 在所有语言中已有翻译",
     "auto_translated": "已自动翻译 {0} 个 key [{1}]",
     "cache_cleared": "翻译缓存已清除",
+    "complete_keys_result": "Key 补全完成: 新增 {0} 个 (翻译 {1} 个), 已存在 {2} 个, 错误 {3} 个",
     "copied": "已复制: {0}",
     "deleted": "已从 {0} 个语言文件中删除",
     "deleted_confirm": "从 {1} 中删除 key \"{0}\"？",
@@ -169,6 +171,7 @@
     "diagnostics_summary": "{0} 个缺失，{1} 个空翻译",
     "hard_string": "可能的硬编码字符串",
     "init_failed": "初始化失败 - {0}，请检查翻译文件目录配置。",
+    "init_locales_result": "语言初始化完成: 新建 {0} 个, 更新 {1} 个, 未变更 {2} 个, 共 {3} 个 key, 自动翻译 {4} 个",
     "initialized": "初始化成功",
     "integrity_ok": "所有 Go 常量和 JSON key 已同步！",
     "json_not_found": "未找到 {1} 中的 JSON key \"{0}\"",
@@ -190,10 +193,16 @@
     "translated_key": "已将 \"{0}\" 翻译到 {1} 种语言",
     "translation_failed": "翻译到 {0} 失败: {1}",
     "unused_found": "发现 {0} 个未使用的 key，详见输出面板。",
-    "updated": "已更新 {1} 中的 \"{0}\"",
-    "init_locales_result": "语言初始化完成: 新建 {0} 个, 更新 {1} 个, 未变更 {2} 个, 共 {3} 个 key, 自动翻译 {4} 个",
-    "complete_keys_result": "Key 补全完成: 新增 {0} 个 (翻译 {1} 个), 已存在 {2} 个, 错误 {3} 个",
-    "all_keys_complete": "所有语言的 key 已齐全，无需补全！"
+    "updated": "已更新 {1} 中的 \"{0}\""
+  },
+  "translator": {
+    "cancel": "取消",
+    "continue": "继续",
+    "no_api_key": "未配置翻译 API Key，将使用 DeepL 网页翻译（速度较慢，需要浏览器支持）。是否继续？",
+    "overwrite": "覆盖",
+    "overwrite_prompt": "Key \"{0}\" 在语言 \"{1}\" 中已有值 \"{2}\"。是否覆盖？",
+    "skip": "跳过",
+    "skip_all": "跳过所有"
   },
   "tree": {
     "placeholder_no_translations": "未检测到翻译，点击刷新或检查翻译文件目录。",

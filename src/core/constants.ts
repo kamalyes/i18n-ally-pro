@@ -1,5 +1,15 @@
 import { workspace } from 'vscode'
 
+// 内置的 DeepL API 密钥（通过环境变量注入）
+export const BUILTIN_DEEPL_API_KEY = process.env.BUILTIN_DEEPL_API_KEY || ''
+
+// 并发配置
+export const DEFAULT_CONCURRENCY = {
+  FILE_PROCESSING: 5,
+  TRANSLATION: 3,
+  FILE_OPERATIONS: 10
+}
+
 export const DEFAULT_IGNORE_DIRS = [
   'node_modules', 'vendor', '.git', 'dist', 'build', '.vscode',
   'out', 'bin', '.cache', '.next', '.nuxt', 'coverage',

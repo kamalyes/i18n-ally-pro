@@ -28,3 +28,4 @@ coverage
 *.sw?
 
 i18n-ally-pro*
+.env

@@ -143,6 +143,28 @@
         "title": "%i18nAllyPro.completeKeys.title%"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "i18nAllyPro.autoTranslate",
+          "when": "i18nAllyPro.hasTranslations"
+        },
+        {
+          "command": "i18nAllyPro.translateKey",
+          "when": "i18nAllyPro.hasTranslations"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "i18nAllyPro.extractText",
+          "when": "editorHasSelection && i18nAllyPro.hasTranslations"
+        },
+        {
+          "command": "i18nAllyPro.translateKey",
+          "when": "editorHasSelection && i18nAllyPro.hasTranslations"
+        }
+      ]
+    },
     "views": {
       "i18nAllyPro": [
         {
@@ -156,7 +178,8 @@
         {
           "id": "i18nAllyPro",
           "title": "%i18nAllyPro.container.title%",
-          "icon": "assets/icon.png"
+          "icon": "assets/icon.png",
+          "when": "i18nAllyPro.hasTranslations"
         }
       ]
     },
@@ -261,9 +284,10 @@
     }
   },
   "scripts": {
-    "build": "webpack --mode production",
+    "build": "node scripts/build-with-env.js",
+    "build:dev": "webpack --mode development",
     "dev": "webpack --mode development --watch",
-    "package": "webpack --mode production && vsce package",
+    "package": "npm run build && vsce package",
     "lint": "tsc --noEmit -p tsconfig.lint.json"
   },
   "devDependencies": {

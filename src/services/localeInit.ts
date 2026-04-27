@@ -5,7 +5,8 @@ import fg from 'fast-glob'
 import { TranslationStore } from '../core/store'
 import { ErrorCodeSyncService } from './errorCodeSync'
 import { TranslatorService } from './translator'
-import { SUPPORTED_LOCALES, SupportedLocale, LOCALE_NAMES, getIgnoreDirs } from '../core/constants'
+import { SUPPORTED_LOCALES, SupportedLocale, LOCALE_NAMES, getIgnoreDirs, DEFAULT_CONCURRENCY } from '../core/constants'
+import { Concurrency } from '../utils/concurrency'
 
 export { SUPPORTED_LOCALES, SupportedLocale, LOCALE_NAMES }
 
@@ -83,53 +84,62 @@ export class LocaleInitService {
         title: 'i18n Pro: Initializing locale files from Go',
         cancellable: true,
       },
-      async (progress) => {
-        let current = 0
-        const total = SUPPORTED_LOCALES.length
-
-        for (const locale of SUPPORTED_LOCALES) {
-          current++
-          progress.report({
-            message: `[${current}/${total}] Processing ${locale} (${LOCALE_NAMES[locale] || locale})`,
-            increment: 100 / total,
-          })
+      async (progress, token) => {
+        // 并发处理每个语言文件
+        const tasks = SUPPORTED_LOCALES.map(locale => async () => {
+          if (token.isCancellationRequested) {
+            return { locale, status: 'cancelled' as const }
+          }
 
           const filePath = path.join(localesDir, `${locale}.json`)
+          let fileCreated = false
+          let fileUpdated = false
+          let fileTranslated = 0
+          let needsWrite = false
+          let dataToWrite: Record<string, string> | null = null
 
           if (fs.existsSync(filePath)) {
             const existingData = this.readLocaleFile(filePath)
+            
+            // 只处理缺失的键
             const missingKeys = sortedKeys.filter(k => existingData[k] === undefined)
 
             if (missingKeys.length === 0) {
-              skippedFiles++
-              continue
+              return { locale, status: 'skipped' as const }
             }
 
+            // 添加缺失的键（空值）
             for (const key of missingKeys) {
               existingData[key] = ''
             }
+            
+            dataToWrite = existingData
+            needsWrite = true
+            fileUpdated = true
 
-            const sortedData = this.sortObjectKeys(existingData)
-            fs.writeFileSync(filePath, JSON.stringify(sortedData, null, 2) + '\n', 'utf-8')
-            updatedFiles++
-
-            if (shouldTranslate && this.translatorService) {
-              for (const key of missingKeys) {
+            // 并发翻译缺失的键（只翻译空值）
+            if (shouldTranslate && this.translatorService && missingKeys.length > 0) {
+              const translationTasks = missingKeys.map(key => async () => {
+                // 只翻译空值
+                if (existingData[key] !== '') return
+                
                 const sourceValue = existingTranslations[sourceLanguage]?.[key]
                 if (sourceValue && sourceValue !== '') {
                   try {
-                    const translated = await this.translatorService.translateText(sourceValue, sourceLanguage, locale)
+                    const translated = await this.translatorService!.translateText(sourceValue, sourceLanguage, locale)
                     if (translated) {
                       existingData[key] = translated
-                      const sortedAgain = this.sortObjectKeys(existingData)
-                      fs.writeFileSync(filePath, JSON.stringify(sortedAgain, null, 2) + '\n', 'utf-8')
-                      translatedKeys++
+                      fileTranslated++
                     }
-                  } catch { /* translation failed, keep empty */ }
+                  } catch { /* translation failed, keep空值 */ }
                 }
-              }
+              })
+
+              // 并发执行翻译任务（使用可配置的并发数）
+              await Concurrency.run(translationTasks, DEFAULT_CONCURRENCY.TRANSLATION, undefined, token)
             }
           } else {
+            // 创建新文件
             const localeData: Record<string, string> = {}
 
             for (const key of sortedKeys) {
@@ -143,30 +153,63 @@ export class LocaleInitService {
               }
             }
 
-            const sortedData = this.sortObjectKeys(localeData)
-            fs.writeFileSync(filePath, JSON.stringify(sortedData, null, 2) + '\n', 'utf-8')
-            createdFiles++
+            dataToWrite = localeData
 
+            // 并发翻译新文件（只翻译空值）
             if (shouldTranslate && this.translatorService && locale !== sourceLanguage) {
-              for (const key of sortedKeys) {
-                if (localeData[key] !== '') continue
+              const translationTasks = sortedKeys.map(key => async () => {
+                // 只翻译空值
+                if (localeData[key] !== '') return
+                
                 const sourceValue = existingTranslations[sourceLanguage]?.[key]
                 if (sourceValue && sourceValue !== '') {
                   try {
-                    const translated = await this.translatorService.translateText(sourceValue, sourceLanguage, locale)
+                    const translated = await this.translatorService!.translateText(sourceValue, sourceLanguage, locale)
                     if (translated) {
                       localeData[key] = translated
-                      const sortedAgain = this.sortObjectKeys(localeData)
-                      fs.writeFileSync(filePath, JSON.stringify(sortedAgain, null, 2) + '\n', 'utf-8')
-                      translatedKeys++
+                      fileTranslated++
                     }
-                  } catch { /* translation failed, keep empty */ }
+                  } catch { /* translation failed, keep空值 */ }
                 }
-              }
+              })
+
+              // 并发执行翻译任务（使用可配置的并发数）
+              await Concurrency.run(translationTasks, DEFAULT_CONCURRENCY.TRANSLATION, undefined, token)
             }
+
+            const sortedData = this.sortObjectKeys(localeData)
+            fs.writeFileSync(filePath, JSON.stringify(sortedData, null, 2) + '\n', 'utf-8')
+            fileCreated = true
+          }
+
+          // 只在有变化时才写入文件（针对已存在的文件）
+          if (needsWrite && dataToWrite && (fileTranslated > 0 || fileUpdated)) {
+            const sortedData = this.sortObjectKeys(dataToWrite)
+            fs.writeFileSync(filePath, JSON.stringify(sortedData, null, 2) + '\n', 'utf-8')
+          }
+
+          return { locale, status: 'processed' as const, fileCreated, fileUpdated, fileTranslated }
+        })
+
+        // 并发执行所有语言文件处理（使用可配置的并发数）
+        const results = await Concurrency.run(tasks, DEFAULT_CONCURRENCY.FILE_PROCESSING, (completed, total) => {
+          progress.report({
+            message: `[${completed}/${total}] Processing languages`,
+            increment: 100 / total,
+          })
+        }, token)
+
+        // 统计结果
+        for (const result of results) {
+          if (result.status === 'processed') {
+            if (result.fileCreated) createdFiles++
+            if (result.fileUpdated) updatedFiles++
+            translatedKeys += result.fileTranslated
+          } else if (result.status === 'skipped') {
+            skippedFiles++
           }
         }
-      },
+      }
     )
 
     await this.store.refresh()

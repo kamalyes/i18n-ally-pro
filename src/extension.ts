@@ -50,6 +50,9 @@ export async function activate(context: ExtensionContext) {
 
   store = new TranslationStore(rootPath)
 
+  // 设置上下文条件
+  commands.executeCommand('setContext', 'i18nAllyPro.hasTranslations', true)
+
   treeProvider = new I18nTreeProvider(store)
   context.subscriptions.push(
     window.registerTreeDataProvider('i18nAllyPro.tree', treeProvider),

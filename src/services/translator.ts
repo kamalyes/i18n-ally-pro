@@ -1,10 +1,14 @@
-import { workspace, window, ProgressLocation } from 'vscode'
+import { window, workspace, ProgressLocation } from 'vscode'
 import { TranslationStore } from '../core/store'
-import {
-  BaseTranslator, TranslateRequest, TranslatorConfig,
-  GoogleTranslator, DeepLTranslator, OpenAITranslator,
-  MicrosoftTranslator, DeepLWebTranslatorAdapter,
-} from '../translators'
+import { BUILTIN_DEEPL_API_KEY, DEFAULT_CONCURRENCY } from '../core/constants'
+import { Concurrency } from '../utils/concurrency'
+import { BaseTranslator, TranslateRequest, TranslatorConfig } from '../translators/base'
+import { GoogleTranslator } from '../translators/google'
+import { DeepLTranslator } from '../translators/deepl'
+import { OpenAITranslator } from '../translators/openai'
+import { MicrosoftTranslator } from '../translators/microsoft'
+import { DeepLWebTranslatorAdapter } from '../translators/deepl-web'
+import { t } from '../i18n'
 
 export type TranslatorEngine = 'google' | 'deepl' | 'openai' | 'microsoft' | 'deepl-web'
 
@@ -33,9 +37,14 @@ export class TranslatorService {
 
   getConfig(): TranslatorServiceConfig {
     const cfg = workspace.getConfiguration('i18nAllyPro')
+    const userApiKey = cfg.get<string>('translatorApiKey', '')
+    
+    // 优先使用用户配置的API密钥，如果没有则使用内置密钥
+    const effectiveApiKey = userApiKey || BUILTIN_DEEPL_API_KEY
+    
     return {
       engine: cfg.get<TranslatorEngine>('translatorEngine', 'google'),
-      apiKey: cfg.get<string>('translatorApiKey', ''),
+      apiKey: effectiveApiKey,
       apiEndpoint: cfg.get<string>('translatorApiEndpoint', ''),
       sourceLanguage: this.store.projectConfig.sourceLanguage,
     }
@@ -43,6 +52,7 @@ export class TranslatorService {
 
   isUsingFallback(): boolean {
     const config = this.getConfig()
+    // 如果有内置API密钥，则不使用fallback
     return !config.apiKey || config.engine === 'deepl-web'
   }
 
@@ -99,12 +109,12 @@ export class TranslatorService {
 
     if (usingFallback) {
       const proceed = await window.showInformationMessage(
-        '未配置翻译 API Key，将使用 DeepL 网页翻译（速度较慢，需要浏览器支持）。是否继续？',
+        t('translator.no_api_key'),
         { modal: false },
-        '继续',
-        '取消'
+        t('translator.continue'),
+        t('translator.cancel')
       )
-      if (proceed !== '继续') {
+      if (proceed !== t('translator.continue')) {
         return { translated: 0, skipped: 0, errors: 0 }
       }
     }
@@ -148,8 +158,24 @@ export class TranslatorService {
 
             const existingValue = this.store.getTranslation(locale, key)
             if (existingValue !== undefined && existingValue !== '') {
-              skipped++
-              continue
+              // 询问用户是否覆盖已有值
+              const shouldOverwrite = await window.showInformationMessage(
+                t('translator.overwrite_prompt', key, locale, existingValue),
+                { modal: true },
+                t('translator.overwrite'),
+                t('translator.skip'),
+                t('translator.skip_all')
+              )
+              
+              if (shouldOverwrite === t('translator.skip')) {
+                skipped++
+                continue
+              }
+              if (shouldOverwrite === t('translator.skip_all')) {
+                skipped += targetLocales.length - targetLocales.indexOf(locale)
+                break
+              }
+              // 如果用户选择"覆盖"，继续执行翻译
             }
 
             try {

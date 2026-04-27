@@ -208,6 +208,6 @@ export class RefactorService {
   }
 
   private escapeRegex(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
 }

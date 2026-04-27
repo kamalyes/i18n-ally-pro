@@ -57,10 +57,10 @@
     "source": "Source",
     "title": "Key Editor",
     "translate": "Auto translate",
+    "translate_failed": "Translation failed: {0}",
     "translated": "translated",
     "translated_empty": "Translation returned empty for \"{0}\" in {1}",
     "translated_ok": "Translated \"{0}\" to {1}",
-    "translate_failed": "Translation failed: {0}",
     "translating": "Translating..."
   },
   "localeFlags": {
@@ -159,9 +159,11 @@
   },
   "misc": {
     "added": "Added: {0} = \"{1}\" → zh: \"{2}\"",
+    "all_keys_complete": "All keys are already present in all locales!",
     "already_translated": "Key \"{0}\" already has translations in all locales",
     "auto_translated": "Auto-translated {0} key(s) [{1}]",
     "cache_cleared": "Translation cache cleared",
+    "complete_keys_result": "Keys completed: {0} added ({1} translated), {2} already existed, {3} errors",
     "copied": "Copied: {0}",
     "deleted": "Deleted from {0} locale files",
     "deleted_confirm": "Delete key \"{0}\" from {1}?",
@@ -169,6 +171,7 @@
     "diagnostics_summary": "{0} missing, {1} empty translations",
     "hard_string": "Possible hard-coded string",
     "init_failed": "Initialization failed - {0}. Please check your locales directory configuration.",
+    "init_locales_result": "Locales initialized: {0} created, {1} updated, {2} unchanged, {3} keys total, {4} auto-translated",
     "initialized": "Initialized successfully",
     "integrity_ok": "All Go consts and JSON keys are in sync!",
     "json_not_found": "JSON key \"{0}\" in {1} not found",
@@ -190,10 +193,16 @@
     "translated_key": "Translated \"{0}\" to {1} locale(s)",
     "translation_failed": "Translation to {0} failed: {1}",
     "unused_found": "Found {0} unused keys. See output panel for details.",
-    "updated": "Updated \"{0}\" in {1}",
-    "init_locales_result": "Locales initialized: {0} created, {1} updated, {2} unchanged, {3} keys total, {4} auto-translated",
-    "complete_keys_result": "Keys completed: {0} added ({1} translated), {2} already existed, {3} errors",
-    "all_keys_complete": "All keys are already present in all locales!"
+    "updated": "Updated \"{0}\" in {1}"
+  },
+  "translator": {
+    "cancel": "Cancel",
+    "continue": "Continue",
+    "no_api_key": "No translation API key configured, will use DeepL web translation (slower, requires browser support). Continue?",
+    "overwrite": "Overwrite",
+    "overwrite_prompt": "Key \"{0}\" already has value \"{2}\" in locale \"{1}\". Overwrite?",
+    "skip": "Skip",
+    "skip_all": "Skip All"
   },
   "tree": {
     "placeholder_no_translations": "No translations detected. Click refresh or check locales path.",
