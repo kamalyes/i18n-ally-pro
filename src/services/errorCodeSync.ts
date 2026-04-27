@@ -2,6 +2,7 @@ import { window, workspace, Uri, ProgressLocation, Position, Range, Selection, V
 import fs from 'fs'
 import path from 'path'
 import { TranslationStore } from '../core/store'
+import { getIgnoreDirs } from '../core/constants'
 
 const GO_CONST_PATTERN = /(\w+)\s*=\s*"([\w.]+)"/g
 
@@ -352,7 +353,7 @@ export class ErrorCodeSyncService {
     const fg = require('fast-glob')
     const files: string[] = await fg('**/*.go', {
       cwd: rootPath,
-      ignore: ['vendor', 'node_modules', '.git'],
+      ignore: getIgnoreDirs(),
       onlyFiles: true,
       absolute: true,
     })
@@ -381,7 +382,7 @@ export class ErrorCodeSyncService {
     const fg = require('fast-glob')
     const files: string[] = await fg('**/codes.go', {
       cwd: rootPath,
-      ignore: ['vendor', 'node_modules'],
+      ignore: getIgnoreDirs(),
       onlyFiles: true,
       absolute: true,
     })

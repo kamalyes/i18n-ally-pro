@@ -190,7 +190,10 @@
     "translated_key": "已将 \"{0}\" 翻译到 {1} 种语言",
     "translation_failed": "翻译到 {0} 失败: {1}",
     "unused_found": "发现 {0} 个未使用的 key，详见输出面板。",
-    "updated": "已更新 {1} 中的 \"{0}\""
+    "updated": "已更新 {1} 中的 \"{0}\"",
+    "init_locales_result": "语言初始化完成: 新建 {0} 个, 更新 {1} 个, 未变更 {2} 个, 共 {3} 个 key, 自动翻译 {4} 个",
+    "complete_keys_result": "Key 补全完成: 新增 {0} 个 (翻译 {1} 个), 已存在 {2} 个, 错误 {3} 个",
+    "all_keys_complete": "所有语言的 key 已齐全，无需补全！"
   },
   "tree": {
     "placeholder_no_translations": "未检测到翻译，点击刷新或检查翻译文件目录。",

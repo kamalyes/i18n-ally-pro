@@ -25,6 +25,8 @@
   "i18nAllyPro.openKeyEditor.title": "i18n Pro: Open Key Editor",
   "i18nAllyPro.showDiffReport.title": "i18n Pro: Show Diff Report",
   "i18nAllyPro.showKeyDependencies.title": "i18n Pro: Show Key Dependencies",
+  "i18nAllyPro.initLocales.title": "i18n Pro: Initialize Locales from Go",
+  "i18nAllyPro.completeKeys.title": "i18n Pro: Complete Missing Keys",
   "i18nAllyPro.tree.name": "Translations",
   "i18nAllyPro.container.title": "i18n Ally Pro",
   "i18nAllyPro.localesPaths.description": "Translation file directories (auto-detected if empty)",
@@ -37,5 +39,6 @@
   "i18nAllyPro.translatorApiKey.description": "Translation API key",
   "i18nAllyPro.translatorApiEndpoint.description": "Custom API endpoint (leave empty for default)",
   "i18nAllyPro.autoTranslateOnSave.description": "Auto translate empty keys when saving translation files",
-  "i18nAllyPro.errorCodesPath.description": "Path to Go error codes file (e.g. errors/codes.go). Auto-detected if empty."
+  "i18nAllyPro.errorCodesPath.description": "Path to Go error codes file (e.g. errors/codes.go). Auto-detected if empty.",
+  "i18nAllyPro.ignoreDirs.description": "Additional directories to ignore when scanning (merged with defaults: node_modules, vendor, .git, dist, build, etc.)"
 }

@@ -10,6 +10,7 @@ import { I18nCompletionProvider } from './providers/completion'
 import { ExtractionService } from './services/extraction'
 import { TranslatorService } from './services/translator'
 import { ErrorCodeSyncService } from './services/errorCodeSync'
+import { LocaleInitService } from './services/localeInit'
 import { RefactorService } from './services/refactor'
 import { KeyDependencyService } from './services/keyDependency'
 import { StatusBarService } from './services/statusBar'
@@ -23,6 +24,7 @@ let store: TranslationStore | null = null
 let diagnosticProvider: I18nDiagnosticProvider | null = null
 let translatorService: TranslatorService | null = null
 let errorCodeSyncService: ErrorCodeSyncService | null = null
+let localeInitService: LocaleInitService | null = null
 let refactorService: RefactorService | null = null
 let matrixPanel: TranslationMatrixPanel | null = null
 let progressDashboard: ProgressDashboard | null = null
@@ -183,6 +185,7 @@ function registerServices(context: ExtensionContext) {
   const extractionService = new ExtractionService(store)
   translatorService = new TranslatorService(store)
   errorCodeSyncService = new ErrorCodeSyncService(store)
+  localeInitService = new LocaleInitService(store, translatorService)
   refactorService = new RefactorService(store)
   keyDependencyService = new KeyDependencyService(store)
   matrixPanel = new TranslationMatrixPanel(store)
@@ -597,6 +600,39 @@ function registerCommands(context: ExtensionContext) {
         return
       }
       await keyDependencyService.showDependencyGraph()
+    }),
+    commands.registerCommand('i18nAllyPro.initLocales', async () => {
+      if (!store || !localeInitService) return
+      const confirm = await window.showWarningMessage(
+        'This will initialize/update 28 locale files from Go code definitions. Existing translations will be preserved. Continue?',
+        { modal: true },
+        'Yes',
+      )
+      if (confirm !== 'Yes') return
+
+      const result = await localeInitService.initLocalesFromGo()
+      if (result.createdFiles > 0 || result.updatedFiles > 0 || result.skippedFiles > 0) {
+        window.showInformationMessage(
+          t('misc.init_locales_result', result.createdFiles, result.updatedFiles, result.skippedFiles, result.totalKeys, result.translatedKeys),
+        )
+        await store.refresh()
+        treeProvider?.refresh()
+        progressDashboard?.refresh()
+      }
+    }),
+    commands.registerCommand('i18nAllyPro.completeKeys', async () => {
+      if (!store || !localeInitService) return
+      const result = await localeInitService.completeMissingKeys()
+      if (result.completed > 0) {
+        window.showInformationMessage(
+          t('misc.complete_keys_result', result.completed, result.translated, result.skipped, result.errors),
+        )
+        await store.refresh()
+        treeProvider?.refresh()
+        progressDashboard?.refresh()
+      } else {
+        window.showInformationMessage(t('misc.all_keys_complete'))
+      }
     }),
   )
 }

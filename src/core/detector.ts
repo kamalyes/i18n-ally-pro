@@ -3,22 +3,10 @@ import fs from 'fs'
 import path from 'path'
 import fg from 'fast-glob'
 import { ProjectConfig, FrameworkId, KeyStyle, ParserId, TranslationFile } from './types'
-
-const LOCALE_DIR_NAMES = [
-  'locales', 'locale', 'i18n', 'lang', 'langs', 'languages',
-  'translations', 'messages', 'intl', 'localization',
-]
+import { LOCALE_DIR_NAMES, COMMON_LOCALES, getIgnoreDirs } from './constants'
 
 const LOCALE_FILE_PATTERNS = [
   '**/{locales,locale,i18n,lang,langs,languages,translations,messages}/**/*.{json,yaml,yml,po,properties}',
-]
-
-const COMMON_LOCALES = [
-  'en', 'zh', 'zh-CN', 'zh-TW', 'zh-Hans', 'zh-Hant',
-  'ja', 'ko', 'de', 'fr', 'es', 'pt', 'ru', 'it', 'nl',
-  'ar', 'hi', 'th', 'vi', 'id', 'ms', 'tr', 'pl', 'uk',
-  'cs', 'sv', 'da', 'no', 'fi', 'el', 'he', 'bg', 'ro',
-  'bm', 'bn', 'kh', 'lo', 'my', 'tc', 'ur',
 ]
 
 export class ProjectDetector {
@@ -88,7 +76,7 @@ export class ProjectDetector {
     for (const pattern of LOCALE_FILE_PATTERNS) {
       const files = await fg(pattern, {
         cwd: this.rootPath,
-        ignore: ['node_modules', '.git', 'dist', 'build', 'vendor'],
+        ignore: getIgnoreDirs(),
         onlyFiles: true,
         absolute: false,
       })
@@ -118,7 +106,7 @@ export class ProjectDetector {
     if (hasGoMod) {
       const goFiles = await fg('**/*.go', {
         cwd: this.rootPath,
-        ignore: ['vendor', 'node_modules'],
+        ignore: getIgnoreDirs(),
         onlyFiles: true,
         absolute: false,
       })
@@ -246,6 +234,7 @@ export class ProjectDetector {
 
       const entries = await fg('**/*.{json,yaml,yml,po,properties}', {
         cwd: absPath,
+        ignore: getIgnoreDirs(),
         onlyFiles: true,
         absolute: true,
       })

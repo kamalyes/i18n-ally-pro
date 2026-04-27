@@ -190,7 +190,10 @@
     "translated_key": "Translated \"{0}\" to {1} locale(s)",
     "translation_failed": "Translation to {0} failed: {1}",
     "unused_found": "Found {0} unused keys. See output panel for details.",
-    "updated": "Updated \"{0}\" in {1}"
+    "updated": "Updated \"{0}\" in {1}",
+    "init_locales_result": "Locales initialized: {0} created, {1} updated, {2} unchanged, {3} keys total, {4} auto-translated",
+    "complete_keys_result": "Keys completed: {0} added ({1} translated), {2} already existed, {3} errors",
+    "all_keys_complete": "All keys are already present in all locales!"
   },
   "tree": {
     "placeholder_no_translations": "No translations detected. Click refresh or check locales path.",

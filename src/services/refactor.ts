@@ -1,6 +1,7 @@
 import { window, workspace, WorkspaceEdit, Range, Uri, ProgressLocation } from 'vscode'
 import fs from 'fs'
 import { TranslationStore } from '../core/store'
+import { getIgnoreDirs } from '../core/constants'
 
 export class RefactorService {
   private store: TranslationStore
@@ -97,7 +98,7 @@ export class RefactorService {
         const fg = require('fast-glob')
         const codeFiles: string[] = await fg('**/*.{go,vue,js,ts,jsx,tsx,html}', {
           cwd: rootPath,
-          ignore: ['vendor', 'node_modules', '.git', 'dist', 'build'],
+          ignore: getIgnoreDirs(),
           onlyFiles: true,
           absolute: true,
         })
@@ -185,7 +186,7 @@ export class RefactorService {
     const fg = require('fast-glob')
     const codeFiles: string[] = await fg('**/*.{go,vue,js,ts,jsx,tsx,html}', {
       cwd: rootPath,
-      ignore: ['vendor', 'node_modules', '.git', 'dist', 'build'],
+      ignore: getIgnoreDirs(),
       onlyFiles: true,
       absolute: true,
     })

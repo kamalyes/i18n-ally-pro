@@ -133,6 +133,14 @@
       {
         "command": "i18nAllyPro.showKeyDependencies",
         "title": "%i18nAllyPro.showKeyDependencies.title%"
+      },
+      {
+        "command": "i18nAllyPro.initLocales",
+        "title": "%i18nAllyPro.initLocales.title%"
+      },
+      {
+        "command": "i18nAllyPro.completeKeys",
+        "title": "%i18nAllyPro.completeKeys.title%"
       }
     ],
     "views": {
@@ -240,6 +248,14 @@
           "type": "string",
           "default": "",
           "description": "%i18nAllyPro.errorCodesPath.description%"
+        },
+        "i18nAllyPro.ignoreDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%i18nAllyPro.ignoreDirs.description%"
         }
       }
     }

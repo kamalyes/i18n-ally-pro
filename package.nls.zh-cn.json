@@ -25,6 +25,8 @@
   "i18nAllyPro.openKeyEditor.title": "i18n Pro: 打开 Key 编辑器",
   "i18nAllyPro.showDiffReport.title": "i18n Pro: 显示差异报告",
   "i18nAllyPro.showKeyDependencies.title": "i18n Pro: 显示 Key 依赖图",
+  "i18nAllyPro.initLocales.title": "i18n Pro: 从 Go 初始化语言配置",
+  "i18nAllyPro.completeKeys.title": "i18n Pro: 一键补全缺失 Key",
   "i18nAllyPro.tree.name": "翻译列表",
   "i18nAllyPro.container.title": "i18n Ally Pro",
   "i18nAllyPro.localesPaths.description": "翻译文件目录（为空时自动检测）",
@@ -37,5 +39,6 @@
   "i18nAllyPro.translatorApiKey.description": "翻译 API 密钥",
   "i18nAllyPro.translatorApiEndpoint.description": "自定义 API 端点（留空使用默认）",
   "i18nAllyPro.autoTranslateOnSave.description": "保存翻译文件时自动翻译空 Key",
-  "i18nAllyPro.errorCodesPath.description": "Go 错误码文件路径（如 errors/codes.go），为空时自动检测"
+  "i18nAllyPro.errorCodesPath.description": "Go 错误码文件路径（如 errors/codes.go），为空时自动检测",
+  "i18nAllyPro.ignoreDirs.description": "扫描时额外忽略的目录（与默认值合并：node_modules、vendor、.git、dist、build 等）"
 }

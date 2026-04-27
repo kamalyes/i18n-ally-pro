@@ -2,6 +2,7 @@ import { window, workspace, ProgressLocation, Uri, ViewColumn, Position, Selecti
 import fs from 'fs'
 import { TranslationStore } from '../core/store'
 import { Scanner, ScannerMatch } from '../core/types'
+import { getIgnoreDirs } from '../core/constants'
 import { GoScanner } from '../scanners/go'
 import { VueScanner } from '../scanners/vue'
 import { ReactScanner } from '../scanners/react'
@@ -34,7 +35,7 @@ export class KeyDependencyService {
     const fg = require('fast-glob')
     const codeFiles: string[] = await fg('**/*.{go,vue,js,ts,jsx,tsx,html}', {
       cwd: rootPath,
-      ignore: ['vendor', 'node_modules', '.git', 'dist', 'build'],
+      ignore: getIgnoreDirs(),
       onlyFiles: true,
       absolute: true,
     })
