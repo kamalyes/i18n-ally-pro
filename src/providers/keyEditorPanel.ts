@@ -1,4 +1,4 @@
-import { window, ViewColumn, workspace, Uri, Selection, Position, Range } from 'vscode'
+import { window, ViewColumn, workspace, Uri, Selection, Position, Range, ProgressLocation } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 
@@ -42,6 +42,10 @@ export class KeyEditorPanel {
     this.update()
   }
 
+  private postToast(msg: string, type: 'success' | 'error' | 'warn' = 'success') {
+    this.panel?.webview.postMessage({ type: 'toast', message: msg, level: type })
+  }
+
   private async handleMessage(msg: EditorMessage) {
     switch (msg.type) {
       case 'edit': {
@@ -49,8 +53,10 @@ export class KeyEditorPanel {
         try {
           await this.store.setTranslation(msg.locale, msg.key, msg.value)
           this.update()
+          this.postToast(t('editor.saved', msg.key, msg.locale))
           window.showInformationMessage(t('editor.saved', msg.key, msg.locale))
         } catch (err: any) {
+          this.postToast(t('editor.save_failed', err.message), 'error')
           window.showErrorMessage(t('editor.save_failed', err.message))
         }
         break
@@ -60,6 +66,7 @@ export class KeyEditorPanel {
         const config = this.store.projectConfig
         const sourceValue = this.store.getTranslation(config.sourceLanguage, msg.key)
         if (!sourceValue) {
+          this.postToast(t('editor.no_source', msg.key), 'warn')
           window.showWarningMessage(t('editor.no_source', msg.key))
           return
         }
@@ -70,11 +77,14 @@ export class KeyEditorPanel {
           if (result) {
             await this.store.setTranslation(msg.locale, msg.key, result)
             this.update()
+            this.postToast(t('editor.translated_ok', msg.key, msg.locale))
             window.showInformationMessage(t('editor.translated_ok', msg.key, msg.locale))
           } else {
+            this.postToast(t('editor.translated_empty', msg.key, msg.locale), 'warn')
             window.showWarningMessage(t('editor.translated_empty', msg.key, msg.locale))
           }
         } catch (err: any) {
+          this.postToast(t('editor.translate_failed', err.message), 'error')
           window.showErrorMessage(t('editor.translate_failed', err.message))
         }
         break
@@ -117,8 +127,10 @@ export class KeyEditorPanel {
           try {
             await this.store.deleteTranslation(msg.locale, msg.key)
             this.update()
+            this.postToast(t('editor.deleted', msg.key, msg.locale))
             window.showInformationMessage(t('editor.deleted', msg.key, msg.locale))
           } catch (err: any) {
+            this.postToast(t('editor.delete_failed', err.message), 'error')
             window.showErrorMessage(t('editor.delete_failed', err.message))
           }
         }
@@ -130,13 +142,53 @@ export class KeyEditorPanel {
   private async translateKeyBatch(key: string, overwriteAll: boolean) {
     const config = this.store.projectConfig
     const sourceLocale = config.sourceLanguage
-    const sourceValue = this.store.getTranslation(sourceLocale, key)
-    if (!sourceValue) {
+    const locales = this.store.locales
+
+    const localeItems = locales
+      .filter(l => {
+        const v = this.store.getTranslation(l, key)
+        return v !== undefined && v !== ''
+      })
+      .map(l => ({
+        label: `${getLocaleFlag(l)} ${l}`,
+        description: this.store.getTranslation(l, key) || '',
+        locale: l,
+      }))
+
+    const customItem = { label: `✏️ ${t('editor.custom_source')}`, description: '', locale: '__custom__' }
+
+    const picked = await window.showQuickPick([...localeItems, customItem], {
+      placeHolder: t('editor.select_source'),
+      title: overwriteAll ? t('editor.translate_all') : t('editor.translate_missing'),
+      ignoreFocusOut: true,
+    })
+
+    if (!picked) return
+
+    let sourceText = ''
+    let fromLocale = ''
+
+    if (picked.locale === '__custom__') {
+      const custom = await window.showInputBox({
+        prompt: t('editor.enter_source_text'),
+        placeHolder: key,
+        ignoreFocusOut: true,
+      })
+      if (!custom) return
+      sourceText = custom
+      fromLocale = sourceLocale
+    } else {
+      sourceText = this.store.getTranslation(picked.locale, key) || ''
+      fromLocale = picked.locale
+    }
+
+    if (!sourceText) {
+      this.postToast(t('editor.no_source', key), 'warn')
       window.showWarningMessage(t('editor.no_source', key))
       return
     }
 
-    const targetLocales = this.store.locales.filter(l => l !== sourceLocale)
+    const targetLocales = locales.filter(l => l !== fromLocale)
     const localesToTranslate = overwriteAll
       ? targetLocales
       : targetLocales.filter(l => {
@@ -145,6 +197,7 @@ export class KeyEditorPanel {
         })
 
     if (localesToTranslate.length === 0) {
+      this.postToast(t('editor.all_translated', key))
       window.showInformationMessage(t('editor.all_translated', key))
       return
     }
@@ -157,35 +210,51 @@ export class KeyEditorPanel {
 
     await window.withProgress(
       {
-        location: { viewColumn: ViewColumn.Beside } as any,
-        title: `i18n Pro: ${overwriteAll ? t('editor.translate_all') : t('editor.translate_missing')} "${key}"`,
+        location: ProgressLocation.Notification,
+        title: `🌐 i18n Pro: ${overwriteAll ? t('editor.translate_all') : t('editor.translate_missing')}`,
         cancellable: true,
       },
       async (progress, token) => {
+        const sourcePreview = sourceText.length > 20 ? sourceText.slice(0, 20) + '...' : sourceText
+        progress.report({
+          message: `🔤 Source: "${sourcePreview}"`,
+        })
+
         for (let i = 0; i < localesToTranslate.length; i++) {
           if (token.isCancellationRequested) break
           const locale = localesToTranslate[i]
           progress.report({
-            message: `[${i + 1}/${localesToTranslate.length}] ${locale}`,
+            message: `[${i + 1}/${localesToTranslate.length}] 🔤 "${sourcePreview}" → ${getLocaleFlag(locale)} ${locale}`,
             increment: 100 / localesToTranslate.length,
           })
           try {
-            const result = await translator.translateText(sourceValue, sourceLocale, locale)
+            const result = await translator.translateText(sourceText, fromLocale, locale)
             if (result) {
               await this.store.setTranslation(locale, key, result)
               translated++
+              const resultPreview = result.length > 20 ? result.slice(0, 20) + '...' : result
+              progress.report({
+                message: `[${i + 1}/${localesToTranslate.length}] ✅ "${sourcePreview}" → ${getLocaleFlag(locale)} "${resultPreview}"`,
+              })
             }
           } catch {
             errors++
+            progress.report({
+              message: `[${i + 1}/${localesToTranslate.length}] ❌ "${sourcePreview}" → ${getLocaleFlag(locale)} failed`,
+            })
           }
         }
+
+        progress.report({
+          message: `Done! ✅ ${translated} translated, ❌ ${errors} errors`,
+        })
       },
     )
 
     this.update()
-    window.showInformationMessage(
-      t('editor.batch_translate_result', key, String(translated), String(errors))
-    )
+    const resultMsg = t('editor.batch_translate_result', key, String(translated), String(errors))
+    this.postToast(resultMsg, errors > 0 ? 'warn' : 'success')
+    window.showInformationMessage(resultMsg)
   }
 
   private update() {
@@ -390,6 +459,13 @@ export class KeyEditorPanel {
           saveValue(locale, key);
         }
       });
+    });
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'toast') {
+        showToast(msg.message, msg.level === 'error' ? 'error' : msg.level === 'warn' ? 'warn' : undefined);
+      }
     });
   </script>
 </body>

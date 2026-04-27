@@ -163,6 +163,23 @@
           "command": "i18nAllyPro.translateKey",
           "when": "editorHasSelection && i18nAllyPro.hasTranslations"
         }
+      ],
+      "view/item/context": [
+        {
+          "command": "i18nAllyPro.renameKey",
+          "when": "view == i18nAllyPro.tree && viewItem == key",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "i18nAllyPro.deleteKey",
+          "when": "view == i18nAllyPro.tree && viewItem == key",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "i18nAllyPro.openKeyEditor",
+          "when": "view == i18nAllyPro.tree && viewItem == key",
+          "group": "navigation@1"
+        }
       ]
     },
     "views": {

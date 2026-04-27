@@ -40,6 +40,9 @@
     "title": "i18n Ally Pro - 翻译差异报告"
   },
   "editor": {
+    "all_translated": "Key \"{0}\" 在所有语言中已有翻译",
+    "batch_translate_result": "Key \"{0}\": 已翻译 {1} 个，错误 {2} 个",
+    "custom_source": "自定义文本输入",
     "delete": "删除",
     "delete_failed": "删除失败 - {0}",
     "deleted": "已从 {1} 中删除 \"{0}\"",
@@ -57,15 +60,15 @@
     "source": "源语言",
     "title": "Key 编辑器",
     "translate": "自动翻译",
+    "translate_all": "覆盖所有",
     "translate_failed": "翻译失败: {0}",
     "translate_missing": "补全剩余",
-    "translate_all": "覆盖所有",
     "translated": "已翻译",
     "translated_empty": "\"{0}\" 翻译到 {1} 返回为空",
     "translated_ok": "已将 \"{0}\" 翻译为 {1}",
     "translating": "正在翻译...",
-    "all_translated": "Key \"{0}\" 在所有语言中已有翻译",
-    "batch_translate_result": "Key \"{0}\": 已翻译 {1} 个，错误 {2} 个"
+    "select_source": "选择翻译的源语言",
+    "enter_source_text": "输入要翻译的源文本"
   },
   "localeFlags": {
     "ar": "🇸🇦",
@@ -164,7 +167,7 @@
   "misc": {
     "added": "已添加: {0} = \"{1}\" → zh: \"{2}\"",
     "all_keys_complete": "所有语言的 key 已齐全，无需补全！",
-    "already_translated": "Key \"{0}\" 在所有语言中已有翻译",
+    "already_translated": "键\"{0}\"已经在所有本地语言中都有翻译",
     "auto_translated": "已自动翻译 {0} 个 key [{1}]",
     "cache_cleared": "翻译缓存已清除",
     "complete_keys_result": "Key 补全完成: 新增 {0} 个 (翻译 {1} 个), 已存在 {2} 个, 错误 {3} 个",

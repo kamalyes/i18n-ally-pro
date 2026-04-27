@@ -1,11 +1,20 @@
 import { Scanner, ScannerMatch } from '../core/types'
 
+function isValidI18nKey(key: string): boolean {
+  if (!key || key.length < 2) return false
+  if (!key.includes('.')) return false
+  if (/^\.+/ .test(key)) return false
+  if (/[/\\]/.test(key)) return false
+  if (/\.(ts|js|tsx|jsx|json|css|scss|less|html|vue|go|py|java|md)$/i.test(key)) return false
+  return true
+}
+
 export class VueScanner implements Scanner {
   languageIds = ['vue', 'html']
 
   private patterns: RegExp[] = [
     /\$t\s*\(\s*['"`]([^'"`]+)['"`]/g,
-    /t\s*\(\s*['"`]([^'"`]+)['"`]/g,
+    /\bt\s*\(\s*['"`]([^'"`]+)['"`]/g,
     /i18n\s*\.\s*t\s*\(\s*['"`]([^'"`]+)['"`]/g,
   ]
 
@@ -15,6 +24,8 @@ export class VueScanner implements Scanner {
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const line = lines[lineIdx]
+      if (/^\s*(import|export|\/\/|\/\*|\*)/.test(line)) continue
+      if (/import\s*\(/.test(line)) continue
 
       for (const pattern of this.patterns) {
         pattern.lastIndex = 0
@@ -22,7 +33,7 @@ export class VueScanner implements Scanner {
 
         while ((match = pattern.exec(line)) !== null) {
           const key = match[1]
-          if (!key) continue
+          if (!key || !isValidI18nKey(key)) continue
 
           const start = match.index + match[0].indexOf(key)
           matches.push({

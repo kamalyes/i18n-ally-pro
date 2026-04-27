@@ -517,12 +517,17 @@ function registerCommands(context: ExtensionContext) {
 
       window.showInformationMessage(t('misc.translated_key', key, translated))
     }),
-    commands.registerCommand('i18nAllyPro.renameKey', async () => {
+    commands.registerCommand('i18nAllyPro.renameKey', async (node?: any) => {
       if (!store || !refactorService) return
-      const oldKey = await window.showInputBox({
-        prompt: 'Enter the i18n key to rename',
-        placeHolder: 'error.old_key',
-      })
+      let oldKey = ''
+      if (node && node.keypath) {
+        oldKey = node.keypath
+      } else {
+        oldKey = (await window.showInputBox({
+          prompt: 'Enter the i18n key to rename',
+          placeHolder: 'error.old_key',
+        })) || ''
+      }
       if (!oldKey) return
 
       const newKey = await window.showInputBox({
@@ -536,12 +541,17 @@ function registerCommands(context: ExtensionContext) {
       await store.refresh()
       treeProvider?.refresh()
     }),
-    commands.registerCommand('i18nAllyPro.deleteKey', async () => {
+    commands.registerCommand('i18nAllyPro.deleteKey', async (node?: any) => {
       if (!store || !refactorService) return
-      const key = await window.showInputBox({
-        prompt: 'Enter the i18n key to delete',
-        placeHolder: 'error.xxx',
-      })
+      let key = ''
+      if (node && node.keypath) {
+        key = node.keypath
+      } else {
+        key = (await window.showInputBox({
+          prompt: 'Enter the i18n key to delete',
+          placeHolder: 'error.xxx',
+        })) || ''
+      }
       if (!key) return
 
       const result = await refactorService.deleteKey(key)
@@ -582,13 +592,18 @@ function registerCommands(context: ExtensionContext) {
       translatorService.clearCache()
       window.showInformationMessage(t('misc.cache_cleared'))
     }),
-    commands.registerCommand('i18nAllyPro.openKeyEditor', async (keypath?: string) => {
+    commands.registerCommand('i18nAllyPro.openKeyEditor', async (node?: any) => {
       if (!store || !keyEditorPanel) return
-      if (!keypath) {
-        keypath = await window.showInputBox({
+      let keypath = ''
+      if (node && typeof node === 'string') {
+        keypath = node
+      } else if (node && node.keypath) {
+        keypath = node.keypath
+      } else {
+        keypath = (await window.showInputBox({
           prompt: 'Enter i18n key to edit',
           placeHolder: 'error.xxx.yyy',
-        })
+        })) || ''
       }
       if (!keypath) return
       keyEditorPanel.show(keypath)

@@ -8,7 +8,7 @@ import { DeepLTranslator } from '../translators/deepl'
 import { OpenAITranslator } from '../translators/openai'
 import { MicrosoftTranslator } from '../translators/microsoft'
 import { DeepLWebTranslatorAdapter } from '../translators/deepl-web'
-import { t } from '../i18n'
+import { t, getLocaleFlag } from '../i18n'
 
 export type TranslatorEngine = 'google' | 'deepl' | 'openai' | 'microsoft' | 'deepl-web'
 
@@ -130,12 +130,16 @@ export class TranslatorService {
     await window.withProgress(
       {
         location: ProgressLocation.Notification,
-        title: `i18n Pro: Auto-translating (${usingFallback ? 'DeepL Web' : config.engine})`,
+        title: `🌐 i18n Pro: Auto-translating`,
         cancellable: true,
       },
       async (progress, token) => {
         const total = sourceKeys.length * targetLocales.length
         let current = 0
+
+        progress.report({
+          message: `Preparing... ${sourceKeys.length} keys × ${targetLocales.length} locales`,
+        })
 
         for (const key of sourceKeys) {
           if (token.isCancellationRequested) break
@@ -147,18 +151,19 @@ export class TranslatorService {
             continue
           }
 
+          const preview = sourceValue.length > 20 ? sourceValue.slice(0, 20) + '...' : sourceValue
+
           for (const locale of targetLocales) {
             if (token.isCancellationRequested) break
 
             current++
             progress.report({
-              message: `[${current}/${total}] ${key} → ${locale}`,
+              message: `[${current}/${total}] 🔤 "${preview}" → ${getLocaleFlag(locale)} ${locale}`,
               increment: (100 / total),
             })
 
             const existingValue = this.store.getTranslation(locale, key)
             if (existingValue !== undefined && existingValue !== '') {
-              // 询问用户是否覆盖已有值
               const shouldOverwrite = await window.showInformationMessage(
                 t('translator.overwrite_prompt', key, locale, existingValue),
                 { modal: true },
@@ -175,7 +180,6 @@ export class TranslatorService {
                 skipped += targetLocales.length - targetLocales.indexOf(locale)
                 break
               }
-              // 如果用户选择"覆盖"，继续执行翻译
             }
 
             try {
@@ -183,6 +187,10 @@ export class TranslatorService {
               if (translatedText) {
                 await this.store.setTranslation(locale, key, translatedText)
                 translated++
+                const translatedPreview = translatedText.length > 20 ? translatedText.slice(0, 20) + '...' : translatedText
+                progress.report({
+                  message: `[${current}/${total}] ✅ "${preview}" → ${getLocaleFlag(locale)} "${translatedPreview}"`,
+                })
               }
               else {
                 skipped++
@@ -191,11 +199,18 @@ export class TranslatorService {
             catch (err: any) {
               console.error(`Translation failed for ${key} → ${locale}:`, err)
               errors++
+              progress.report({
+                message: `[${current}/${total}] ❌ "${preview}" → ${getLocaleFlag(locale)} failed`,
+              })
             }
 
             await this.delay(usingFallback ? 500 : 200)
           }
         }
+
+        progress.report({
+          message: `Done! ✅ ${translated} translated, ⏭ ${skipped} skipped, ❌ ${errors} errors`,
+        })
       },
     )
 

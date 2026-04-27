@@ -40,10 +40,14 @@
     "title": "i18n Ally Pro - Translation Diff Report"
   },
   "editor": {
+    "all_translated": "Key \"{0}\" already has translations in all locales",
+    "batch_translate_result": "Key \"{0}\": {1} translated, {2} errors",
+    "custom_source": "Customized text input",
     "delete": "Delete",
     "delete_failed": "Delete failed - {0}",
     "deleted": "Deleted \"{0}\" from {1}",
     "empty": "empty",
+    "enter_source_text": "Enter the source text to translate from",
     "file_not_found": "File not found: {0}",
     "missing": "missing",
     "missing_placeholder": "Missing translation...",
@@ -54,18 +58,17 @@
     "save_failed": "Save failed - {0}",
     "saved": "Saved \"{0}\" in {1}",
     "saving": "Saving...",
+    "select_source": "Select source language for translation",
     "source": "Source",
     "title": "Key Editor",
     "translate": "Auto translate",
+    "translate_all": "Overwrite All",
     "translate_failed": "Translation failed: {0}",
     "translate_missing": "Fill Missing",
-    "translate_all": "Overwrite All",
     "translated": "translated",
     "translated_empty": "Translation returned empty for \"{0}\" in {1}",
     "translated_ok": "Translated \"{0}\" to {1}",
-    "translating": "Translating...",
-    "all_translated": "Key \"{0}\" already has translations in all locales",
-    "batch_translate_result": "Key \"{0}\": {1} translated, {2} errors"
+    "translating": "Translating..."
   },
   "localeFlags": {
     "ar": "🇸🇦",

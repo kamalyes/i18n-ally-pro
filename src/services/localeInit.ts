@@ -177,15 +177,17 @@ export class LocaleInitService {
               await Concurrency.run(translationTasks, DEFAULT_CONCURRENCY.TRANSLATION, undefined, token)
             }
 
-            const sortedData = this.sortObjectKeys(localeData)
-            fs.writeFileSync(filePath, JSON.stringify(sortedData, null, 2) + '\n', 'utf-8')
+            const nestedData = this.flattenToNested(this.sortObjectKeys(localeData))
+            const sortedNested = this.sortObjectKeysDeep(nestedData)
+            fs.writeFileSync(filePath, JSON.stringify(sortedNested, null, 2) + '\n', 'utf-8')
             fileCreated = true
           }
 
           // 只在有变化时才写入文件（针对已存在的文件）
           if (needsWrite && dataToWrite && (fileTranslated > 0 || fileUpdated)) {
-            const sortedData = this.sortObjectKeys(dataToWrite)
-            fs.writeFileSync(filePath, JSON.stringify(sortedData, null, 2) + '\n', 'utf-8')
+            const nestedData = this.flattenToNested(this.sortObjectKeys(dataToWrite))
+            const sortedNested = this.sortObjectKeysDeep(nestedData)
+            fs.writeFileSync(filePath, JSON.stringify(sortedNested, null, 2) + '\n', 'utf-8')
           }
 
           return { locale, status: 'processed' as const, fileCreated, fileUpdated, fileTranslated }
@@ -336,16 +338,61 @@ export class LocaleInitService {
   private readLocaleFile(filePath: string): Record<string, string> {
     try {
       const content = fs.readFileSync(filePath, 'utf-8')
-      return JSON.parse(content)
+      const parsed = JSON.parse(content)
+      return this.nestedToFlatten(parsed)
     } catch {
       return {}
     }
+  }
+
+  private nestedToFlatten(obj: Record<string, any>, prefix: string = ''): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const key of Object.keys(obj)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key
+      const value = obj[key]
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        Object.assign(result, this.nestedToFlatten(value, fullKey))
+      } else {
+        result[fullKey] = String(value ?? '')
+      }
+    }
+    return result
+  }
+
+  private flattenToNested(obj: Record<string, string>): Record<string, any> {
+    const result: Record<string, any> = {}
+    for (const [key, value] of Object.entries(obj)) {
+      const parts = key.split('.')
+      let current = result
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i]
+        if (!(part in current)) {
+          current[part] = {}
+        }
+        current = current[part]
+      }
+      current[parts[parts.length - 1]] = value
+    }
+    return result
   }
 
   private sortObjectKeys(obj: Record<string, any>): Record<string, any> {
     const sorted: Record<string, any> = {}
     for (const key of Object.keys(obj).sort()) {
       sorted[key] = obj[key]
+    }
+    return sorted
+  }
+
+  private sortObjectKeysDeep(obj: Record<string, any>): Record<string, any> {
+    const sorted: Record<string, any> = {}
+    for (const key of Object.keys(obj).sort()) {
+      const value = obj[key]
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        sorted[key] = this.sortObjectKeysDeep(value)
+      } else {
+        sorted[key] = value
+      }
     }
     return sorted
   }

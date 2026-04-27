@@ -1,5 +1,14 @@
 import { Scanner, ScannerMatch } from '../core/types'
 
+function isValidI18nKey(key: string): boolean {
+  if (!key || key.length < 3) return false
+  if (!key.includes('.')) return false
+  if (/^\.+/.test(key)) return false
+  if (/[/\\]/.test(key)) return false
+  if (/\.(go|mod|sum|proto)$/i.test(key)) return false
+  return true
+}
+
 export class GoScanner implements Scanner {
   languageIds = ['go']
 
@@ -8,7 +17,7 @@ export class GoScanner implements Scanner {
     /i18n\s*\.\s*GetMessage\s*\(\s*["']([^"']+)["']/g,
     /i18n\s*\.\s*Translate\s*\(\s*["']([^"']+)["']/g,
     /GetMessage\s*\(\s*["']([^"']+)["']/g,
-    /T\s*\(\s*["']([\w.]+)["']/g,
+    /\bT\s*\(\s*["']([\w.]+)["']/g,
     /\w+\s*=\s*["']([\w.]+\.[\w.]+)["']/g,
   ]
 
@@ -18,6 +27,8 @@ export class GoScanner implements Scanner {
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const line = lines[lineIdx]
+      if (/^\s*(\/\/|\/\*|\*)/.test(line)) continue
+      if (/^\s*import\s/.test(line)) continue
 
       for (const pattern of this.patterns) {
         pattern.lastIndex = 0
@@ -25,7 +36,7 @@ export class GoScanner implements Scanner {
 
         while ((match = pattern.exec(line)) !== null) {
           const key = match[1]
-          if (!key || !key.includes('.') || key.length < 3) continue
+          if (!key || !isValidI18nKey(key)) continue
           if (this.isGoKeyword(key)) continue
 
           const start = match.index + match[0].indexOf(key)
