@@ -13,6 +13,7 @@ export class KeyEditorPanel {
   private store: TranslationStore
   private panel: import('vscode').WebviewPanel | null = null
   private currentKey: string = ''
+  private suppressFocus: boolean = false
 
   constructor(store: TranslationStore) {
     this.store = store
@@ -22,7 +23,9 @@ export class KeyEditorPanel {
     this.currentKey = keypath
 
     if (this.panel) {
-      this.panel.reveal(ViewColumn.Beside)
+      if (!this.suppressFocus) {
+        this.panel.reveal(ViewColumn.Beside)
+      }
       this.update()
       return
     }
@@ -140,6 +143,15 @@ export class KeyEditorPanel {
   }
 
   private async translateKeyBatch(key: string, overwriteAll: boolean) {
+    this.suppressFocus = true
+    try {
+      return await this._translateKeyBatch(key, overwriteAll)
+    } finally {
+      this.suppressFocus = false
+    }
+  }
+
+  private async _translateKeyBatch(key: string, overwriteAll: boolean) {
     const config = this.store.projectConfig
     const sourceLocale = config.sourceLanguage
     const locales = this.store.locales
@@ -188,7 +200,8 @@ export class KeyEditorPanel {
       return
     }
 
-    const targetLocales = locales.filter(l => l !== fromLocale)
+    const isCustomSource = picked.locale === '__custom__'
+    const targetLocales = isCustomSource ? locales : locales.filter(l => l !== fromLocale)
     const localesToTranslate = overwriteAll
       ? targetLocales
       : targetLocales.filter(l => {
@@ -228,14 +241,22 @@ export class KeyEditorPanel {
             increment: 100 / localesToTranslate.length,
           })
           try {
-            const result = await translator.translateText(sourceText, fromLocale, locale)
-            if (result) {
-              await this.store.setTranslation(locale, key, result)
+            if (isCustomSource && locale === fromLocale) {
+              await this.store.setTranslation(locale, key, sourceText)
               translated++
-              const resultPreview = result.length > 20 ? result.slice(0, 20) + '...' : result
               progress.report({
-                message: `[${i + 1}/${localesToTranslate.length}] ✅ "${sourcePreview}" → ${getLocaleFlag(locale)} "${resultPreview}"`,
+                message: `[${i + 1}/${localesToTranslate.length}] ✅ "${sourcePreview}" → ${getLocaleFlag(locale)} (direct set)`,
               })
+            } else {
+              const result = await translator.translateText(sourceText, fromLocale, locale)
+              if (result) {
+                await this.store.setTranslation(locale, key, result)
+                translated++
+                const resultPreview = result.length > 20 ? result.slice(0, 20) + '...' : result
+                progress.report({
+                  message: `[${i + 1}/${localesToTranslate.length}] ✅ "${sourcePreview}" → ${getLocaleFlag(locale)} "${resultPreview}"`,
+                })
+              }
             }
           } catch {
             errors++
