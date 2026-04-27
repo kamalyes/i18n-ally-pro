@@ -58,10 +58,14 @@
     "title": "Key 编辑器",
     "translate": "自动翻译",
     "translate_failed": "翻译失败: {0}",
+    "translate_missing": "补全剩余",
+    "translate_all": "覆盖所有",
     "translated": "已翻译",
     "translated_empty": "\"{0}\" 翻译到 {1} 返回为空",
     "translated_ok": "已将 \"{0}\" 翻译为 {1}",
-    "translating": "正在翻译..."
+    "translating": "正在翻译...",
+    "all_translated": "Key \"{0}\" 在所有语言中已有翻译",
+    "batch_translate_result": "Key \"{0}\": 已翻译 {1} 个，错误 {2} 个"
   },
   "localeFlags": {
     "ar": "🇸🇦",

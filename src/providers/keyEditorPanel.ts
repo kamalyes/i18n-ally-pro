@@ -3,7 +3,7 @@ import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 
 interface EditorMessage {
-  type: 'ready' | 'edit' | 'translate' | 'openFile' | 'delete'
+  type: 'ready' | 'edit' | 'translate' | 'translateMissing' | 'translateAll' | 'openFile' | 'delete'
   key?: string
   locale?: string
   value?: string
@@ -79,6 +79,16 @@ export class KeyEditorPanel {
         }
         break
       }
+      case 'translateMissing': {
+        if (!msg.key) return
+        await this.translateKeyBatch(msg.key, false)
+        break
+      }
+      case 'translateAll': {
+        if (!msg.key) return
+        await this.translateKeyBatch(msg.key, true)
+        break
+      }
       case 'openFile': {
         if (!msg.key || !msg.locale) return
         const file = this.store.findFileForKey(msg.key, msg.locale)
@@ -115,6 +125,67 @@ export class KeyEditorPanel {
         break
       }
     }
+  }
+
+  private async translateKeyBatch(key: string, overwriteAll: boolean) {
+    const config = this.store.projectConfig
+    const sourceLocale = config.sourceLanguage
+    const sourceValue = this.store.getTranslation(sourceLocale, key)
+    if (!sourceValue) {
+      window.showWarningMessage(t('editor.no_source', key))
+      return
+    }
+
+    const targetLocales = this.store.locales.filter(l => l !== sourceLocale)
+    const localesToTranslate = overwriteAll
+      ? targetLocales
+      : targetLocales.filter(l => {
+          const v = this.store.getTranslation(l, key)
+          return v === undefined || v === ''
+        })
+
+    if (localesToTranslate.length === 0) {
+      window.showInformationMessage(t('editor.all_translated', key))
+      return
+    }
+
+    const { TranslatorService } = await import('../services/translator')
+    const translator = new TranslatorService(this.store)
+
+    let translated = 0
+    let errors = 0
+
+    await window.withProgress(
+      {
+        location: { viewColumn: ViewColumn.Beside } as any,
+        title: `i18n Pro: ${overwriteAll ? t('editor.translate_all') : t('editor.translate_missing')} "${key}"`,
+        cancellable: true,
+      },
+      async (progress, token) => {
+        for (let i = 0; i < localesToTranslate.length; i++) {
+          if (token.isCancellationRequested) break
+          const locale = localesToTranslate[i]
+          progress.report({
+            message: `[${i + 1}/${localesToTranslate.length}] ${locale}`,
+            increment: 100 / localesToTranslate.length,
+          })
+          try {
+            const result = await translator.translateText(sourceValue, sourceLocale, locale)
+            if (result) {
+              await this.store.setTranslation(locale, key, result)
+              translated++
+            }
+          } catch {
+            errors++
+          }
+        }
+      },
+    )
+
+    this.update()
+    window.showInformationMessage(
+      t('editor.batch_translate_result', key, String(translated), String(errors))
+    )
   }
 
   private update() {
@@ -216,6 +287,12 @@ export class KeyEditorPanel {
     .btn-translate:hover { border-color: #2196F3; }
     .btn-delete:hover { border-color: #f48771; }
     .btn.loading { opacity: 0.5; pointer-events: none; }
+    .header-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .btn-action { padding: 6px 14px; border: 1px solid #444; border-radius: 4px; background: #2d2d2d; cursor: pointer; color: #d4d4d4; font-size: 12px; transition: all 0.15s; display: flex; align-items: center; gap: 4px; }
+    .btn-action:hover { background: #3d3d3d; border-color: #888; }
+    .btn-fill:hover { border-color: #2196F3; color: #64B5F6; }
+    .btn-overwrite:hover { border-color: #FF9800; color: #FFB74D; }
+    .btn-action.loading { opacity: 0.5; pointer-events: none; }
     .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 8px 20px; border-radius: 6px; font-size: 13px; z-index: 9999; transition: opacity 0.3s; pointer-events: none; color: #fff; }
   </style>
 </head>
@@ -227,6 +304,10 @@ export class KeyEditorPanel {
       ${missingCount > 0 ? `<span class="stat missing">⚠️ ${missingCount} ${t('editor.missing')}</span>` : ''}
       ${emptyCount > 0 ? `<span class="stat empty">⬜ ${emptyCount} ${t('editor.empty')}</span>` : ''}
     </div>
+    <div class="header-actions">
+      <button class="btn-action btn-fill" onclick="translateMissing()" title="${t('editor.translate_missing')}">🤖 ${t('editor.translate_missing')}</button>
+      <button class="btn-action btn-overwrite" onclick="translateAll()" title="${t('editor.translate_all')}">🔄 ${t('editor.translate_all')}</button>
+    </div>
   </div>
   <div id="locales">${rows}</div>
   <script>
@@ -236,6 +317,7 @@ export class KeyEditorPanel {
       translating: t('editor.translating'),
       translated: t('editor.translated_ok', '{0}', '{1}'),
       openingFile: t('editor.opening_file'),
+      currentKey: key,
     })};
     const vscode = acquireVsCodeApi();
 
@@ -283,6 +365,20 @@ export class KeyEditorPanel {
 
     function deleteKey(locale, key) {
       vscode.postMessage({ type: 'delete', key, locale });
+    }
+
+    function translateMissing() {
+      const btn = event.currentTarget;
+      btn.classList.add('loading');
+      vscode.postMessage({ type: 'translateMissing', key: I18N.currentKey });
+      setTimeout(() => { btn.classList.remove('loading'); }, 2000);
+    }
+
+    function translateAll() {
+      const btn = event.currentTarget;
+      btn.classList.add('loading');
+      vscode.postMessage({ type: 'translateAll', key: I18N.currentKey });
+      setTimeout(() => { btn.classList.remove('loading'); }, 2000);
     }
 
     document.querySelectorAll('.translation-input').forEach(input => {
