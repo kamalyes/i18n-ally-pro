@@ -28,6 +28,8 @@
   "dashboard": {
     "auto_translate_failed": "Auto translate failed - {0}",
     "auto_translate_started": "Auto translate started...",
+    "clone_failed": "Clone locale failed - {0}",
+    "clone_result": "✅ Cloned {0} → {1}: {2} keys copied, {3} skipped",
     "refresh_failed": "Refresh failed - {0}",
     "refreshed": "Dashboard refreshed"
   },

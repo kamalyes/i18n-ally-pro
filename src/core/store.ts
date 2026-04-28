@@ -217,6 +217,51 @@ export class TranslationStore extends EventEmitter {
     return sorted
   }
 
+  async cloneLocale(sourceLocale: string, targetLocale: string, overwrite: boolean = false): Promise<{ cloned: number; skipped: number }> {
+    const sourceData = this.translations[sourceLocale]
+    if (!sourceData) return { cloned: 0, skipped: 0 }
+
+    let cloned = 0
+    let skipped = 0
+
+    if (!this.translations[targetLocale])
+      this.translations[targetLocale] = {}
+
+    for (const [key, value] of Object.entries(sourceData)) {
+      if (!value && value !== '') continue
+      const existing = this.translations[targetLocale][key]
+      if (existing !== undefined && existing !== '' && !overwrite) {
+        skipped++
+        continue
+      }
+      this.translations[targetLocale][key] = value
+      cloned++
+    }
+
+    let file = this.files.find(f => f.locale === targetLocale)
+    if (!file) {
+      const sourceFile = this.files.find(f => f.locale === sourceLocale)
+      if (sourceFile) {
+        const dir = path.dirname(sourceFile.filepath)
+        const ext = path.extname(sourceFile.filepath)
+        const newFilePath = path.join(dir, `${targetLocale}${ext}`)
+        const nestedData = this.config?.keystyle === 'nested'
+          ? this.nestObject(this.sortObjectKeys(this.translations[targetLocale]))
+          : this.sortObjectKeys(this.translations[targetLocale])
+        fs.writeFileSync(newFilePath, JSON.stringify(nestedData, null, 2) + '\n', 'utf-8')
+        this.files.push({ locale: targetLocale, filepath: newFilePath, parser: sourceFile.parser })
+        this.emit('didChange')
+        return { cloned, skipped }
+      }
+      return { cloned, skipped }
+    }
+
+    await this.writeToFile(file)
+    this.emit('didChange')
+
+    return { cloned, skipped }
+  }
+
   findFileForKey(key: string, locale: string): TranslationFile | undefined {
     return this.files.find(f => f.locale === locale)
   }

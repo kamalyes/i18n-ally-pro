@@ -1,6 +1,7 @@
 import { window, ViewColumn, Uri, commands } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
+import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
 
 export class ProgressDashboard {
   private store: TranslationStore
@@ -27,7 +28,7 @@ export class ProgressDashboard {
     )
 
     this.panel.onDidDispose(() => { this.panel = null })
-    this.panel.webview.onDidReceiveMessage(async (msg: { type: string; category?: string; key?: string }) => {
+    this.panel.webview.onDidReceiveMessage(async (msg: { type: string; category?: string; key?: string; sourceLocale?: string; targetLocale?: string; overwrite?: boolean }) => {
       if (msg.type === 'refresh') {
         try {
           await this.store.refresh()
@@ -48,6 +49,22 @@ export class ProgressDashboard {
         } catch (err: any) {
           window.showErrorMessage(t('dashboard.auto_translate_failed', err.message))
           this.panel?.webview.postMessage({ type: 'translateDone', error: true })
+        }
+      }
+      if (msg.type === 'cloneLocale' && msg.sourceLocale && msg.targetLocale) {
+        try {
+          const result = await this.store.cloneLocale(msg.sourceLocale, msg.targetLocale, msg.overwrite || false)
+          await this.store.refresh()
+          this.update()
+          if (this.onRefresh) this.onRefresh()
+          const emoji = result.cloned > 0 ? '✅' : '⚠️'
+          window.showInformationMessage(
+            t('dashboard.clone_result', msg.sourceLocale, msg.targetLocale, String(result.cloned), String(result.skipped))
+          )
+          this.panel?.webview.postMessage({ type: 'cloneDone', cloned: result.cloned, skipped: result.skipped })
+        } catch (err: any) {
+          window.showErrorMessage(t('dashboard.clone_failed', err.message))
+          this.panel?.webview.postMessage({ type: 'cloneDone', error: true })
         }
       }
       if (msg.type === 'openCategory' && msg.category) {
@@ -80,6 +97,8 @@ export class ProgressDashboard {
     const allKeys = this.store.getAllKeys()
     const config = this.store.projectConfig
     const sourceLocale = config.sourceLanguage
+
+    const cloneLocaleData = buildCloneLocaleData(locales)
     const diagnostics = this.store.getDiagnostics()
 
     const totalCells = allKeys.length * locales.length
@@ -124,6 +143,7 @@ export class ProgressDashboard {
             <span class="pct" style="color:${barColor}">${d.pct}%</span>
             <span class="detail">${d.filled}/${d.total}</span>
           </div>
+          <button class="btn-clone" onclick="showCloneDialog('${d.locale}')" title="Clone this locale to another">📋</button>
         </div>`
     }).join('')
 
@@ -196,6 +216,9 @@ export class ProgressDashboard {
     .locale-stats { width: 80px; text-align: right; flex-shrink: 0; }
     .locale-stats .pct { font-size: 14px; font-weight: bold; }
     .locale-stats .detail { font-size: 11px; color: #666; margin-left: 4px; }
+    .btn-clone { padding: 2px 6px; background: transparent; border: 1px solid #555; border-radius: 3px; cursor: pointer; font-size: 12px; opacity: 0.5; transition: all 0.15s; flex-shrink: 0; }
+    .btn-clone:hover { opacity: 1; border-color: #2196F3; background: rgba(33,150,243,0.1); }
+    ${getCloneDialogCss()}
     .category-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 4px 6px; border-radius: 4px; }
     .category-row.clickable { cursor: pointer; transition: background 0.15s; }
     .category-row.clickable:hover { background: #2d2d2d; }
@@ -265,6 +288,7 @@ export class ProgressDashboard {
       </div>
     </div>
   </div>
+  ${getCloneDialogHtml()}
   <script>
     const I18N = ${JSON.stringify({
       refreshing: t('dashboard.refreshed'),
@@ -272,6 +296,8 @@ export class ProgressDashboard {
       autoTranslating: t('dashboard.auto_translate_started'),
       autoTranslateFailed: t('dashboard.auto_translate_failed', '{0}'),
     })};
+    const ALL_LOCALES = ${JSON.stringify(locales)};
+    const SOURCE_LOCALE = ${JSON.stringify(sourceLocale)};
     const vscode = acquireVsCodeApi();
 
     function showToast(msg, type) {
@@ -324,6 +350,15 @@ export class ProgressDashboard {
     });
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
     function openKey(key) { vscode.postMessage({ type: 'openKey', key: key }); }
+
+    ${getCloneDialogJs(cloneLocaleData, locales, sourceLocale)}
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'cloneDone') {
+        showToast(msg.error ? '❌ Clone failed' : '✅ Cloned ' + (msg.cloned || 0) + ' keys');
+      }
+    });
   </script>
 </body>
 </html>`

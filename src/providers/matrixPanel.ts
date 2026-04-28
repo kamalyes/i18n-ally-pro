@@ -1,12 +1,16 @@
 import { window, ViewColumn, Uri, workspace } from 'vscode'
 import { TranslationStore } from '../core/store'
+import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
 
 interface MatrixMessage {
-  type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'exportCsv' | 'openFile'
+  type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'exportCsv' | 'openFile' | 'cloneLocale'
   key?: string
   locale?: string
   value?: string
   keys?: string[]
+  sourceLocale?: string
+  targetLocale?: string
+  overwrite?: boolean
 }
 
 export class TranslationMatrixPanel {
@@ -101,6 +105,22 @@ export class TranslationMatrixPanel {
         }
         break
       }
+      case 'cloneLocale': {
+        if (!msg.sourceLocale || !msg.targetLocale) return
+        try {
+          const result = await this.store.cloneLocale(msg.sourceLocale, msg.targetLocale, msg.overwrite || false)
+          await this.store.refresh()
+          this.update()
+          window.showInformationMessage(
+            `✅ Cloned ${msg.sourceLocale} → ${msg.targetLocale}: ${result.cloned} keys copied, ${result.skipped} skipped`,
+          )
+          this.panel?.webview.postMessage({ type: 'cloneDone', cloned: result.cloned, skipped: result.skipped })
+        } catch (err: any) {
+          window.showErrorMessage(`Clone failed: ${err.message}`)
+          this.panel?.webview.postMessage({ type: 'cloneDone', error: true })
+        }
+        break
+      }
       case 'exportCsv': {
         const csv = this.generateCsv()
         const uri = await window.showSaveDialog({
@@ -154,6 +174,8 @@ export class TranslationMatrixPanel {
     const allKeys = this.store.getAllKeys()
     const config = this.store.projectConfig
     const sourceLocale = config.sourceLanguage
+
+    const cloneLocaleData = buildCloneLocaleData(locales)
 
     const localeHeaders = locales.map(l => {
       const isSource = l === sourceLocale
@@ -245,6 +267,7 @@ export class TranslationMatrixPanel {
     tr.row-incomplete { border-left: 3px solid #f48771; }
     tr.row-complete { border-left: 3px solid transparent; }
     .hidden { display: none !important; }
+    ${getCloneDialogCss()}
   </style>
 </head>
 <body>
@@ -257,6 +280,7 @@ export class TranslationMatrixPanel {
       <button class="filter-btn" onclick="setFilter('complete', this)">Complete</button>
     </div>
     <button class="btn btn-primary" onclick="translateAllMissing()">🤖 Translate All Missing</button>
+    <button class="btn" onclick="showCloneDialog()">📋 Clone Locale</button>
     <button class="btn" onclick="exportCsv()">📄 Export CSV</button>
   </div>
   <div class="stats-bar">
@@ -271,7 +295,10 @@ export class TranslationMatrixPanel {
       <tbody id="matrixBody">${rows}</tbody>
     </table>
   </div>
+  ${getCloneDialogHtml()}
   <script>
+    const ALL_LOCALES = ${JSON.stringify(locales)};
+    const SOURCE_LOCALE = ${JSON.stringify(sourceLocale)};
     const vscode = acquireVsCodeApi();
     let currentFilter = 'all';
     let sortCol = -1;
@@ -352,6 +379,19 @@ export class TranslationMatrixPanel {
       });
       rows.forEach(r => tbody.appendChild(r));
     }
+
+    ${getCloneDialogJs(cloneLocaleData, locales, sourceLocale)}
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'cloneDone') {
+        const btn = document.querySelector('.btn[onclick="showCloneDialog()"]');
+        if (btn) {
+          btn.textContent = msg.error ? '❌ Clone failed' : '✅ Cloned ' + (msg.cloned || 0) + ' keys';
+          setTimeout(() => { btn.textContent = '📋 Clone Locale'; }, 3000);
+        }
+      }
+    });
   </script>
 </body>
 </html>`

@@ -28,6 +28,8 @@
   "dashboard": {
     "auto_translate_failed": "自动翻译失败 - {0}",
     "auto_translate_started": "自动翻译已开始...",
+    "clone_failed": "克隆语言失败 - {0}",
+    "clone_result": "✅ 克隆 {0} → {1}: {2} 个 key 已复制, {3} 个跳过",
     "refresh_failed": "刷新失败 - {0}",
     "refreshed": "仪表盘已刷新"
   },
