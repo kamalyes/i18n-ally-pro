@@ -1,6 +1,7 @@
 import { window, ViewColumn, Uri, workspace } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
+import type { TranslatorService } from '../services/translator'
 
 interface MatrixMessage {
   type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'exportCsv' | 'openFile' | 'cloneLocale'
@@ -15,10 +16,12 @@ interface MatrixMessage {
 
 export class TranslationMatrixPanel {
   private store: TranslationStore
+  private translatorService: TranslatorService | null
   private panel: import('vscode').WebviewPanel | null = null
 
-  constructor(store: TranslationStore) {
+  constructor(store: TranslationStore, translatorService?: TranslatorService) {
     this.store = store
+    this.translatorService = translatorService || null
   }
 
   show() {
@@ -115,6 +118,15 @@ export class TranslationMatrixPanel {
             `✅ Cloned ${msg.sourceLocale} → ${msg.targetLocale}: ${result.cloned} keys copied, ${result.skipped} skipped`,
           )
           this.panel?.webview.postMessage({ type: 'cloneDone', cloned: result.cloned, skipped: result.skipped })
+          if (this.translatorService && msg.sourceLocale !== msg.targetLocale) {
+            const translateResult = await this.translatorService.translateLocale(msg.sourceLocale, msg.targetLocale, msg.overwrite || false)
+            await this.store.refresh()
+            this.update()
+            window.showInformationMessage(
+              `🌐 Translated ${msg.sourceLocale} → ${msg.targetLocale}: ${translateResult.translated} keys translated`,
+            )
+            this.panel?.webview.postMessage({ type: 'translateDone' })
+          }
         } catch (err: any) {
           window.showErrorMessage(`Clone failed: ${err.message}`)
           this.panel?.webview.postMessage({ type: 'cloneDone', error: true })
@@ -239,6 +251,7 @@ export class TranslationMatrixPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Translation Matrix</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }

@@ -206,8 +206,8 @@ function registerServices(context: ExtensionContext) {
   qualityCheckService = new QualityCheckService(store)
   translationHistoryService = new TranslationHistoryService(store)
   store.setHistoryService(translationHistoryService)
-  matrixPanel = new TranslationMatrixPanel(store)
-  progressDashboard = new ProgressDashboard(store, () => { treeProvider?.refresh() })
+  matrixPanel = new TranslationMatrixPanel(store, translatorService)
+  progressDashboard = new ProgressDashboard(store, translatorService, () => { treeProvider?.refresh() })
   diffViewPanel = new DiffViewPanel(store)
 
   const statusBarService = new StatusBarService(store)

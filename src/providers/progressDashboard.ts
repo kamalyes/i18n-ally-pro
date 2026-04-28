@@ -2,14 +2,17 @@ import { window, ViewColumn, Uri, commands } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
+import type { TranslatorService } from '../services/translator'
 
 export class ProgressDashboard {
   private store: TranslationStore
+  private translatorService: TranslatorService | null
   private panel: import('vscode').WebviewPanel | null = null
   private onRefresh: (() => void) | null = null
 
-  constructor(store: TranslationStore, onRefresh?: () => void) {
+  constructor(store: TranslationStore, translatorService?: TranslatorService, onRefresh?: () => void) {
     this.store = store
+    this.translatorService = translatorService || null
     this.onRefresh = onRefresh || null
   }
 
@@ -57,11 +60,20 @@ export class ProgressDashboard {
           await this.store.refresh()
           this.update()
           if (this.onRefresh) this.onRefresh()
-          const emoji = result.cloned > 0 ? '✅' : '⚠️'
           window.showInformationMessage(
             t('dashboard.clone_result', msg.sourceLocale, msg.targetLocale, String(result.cloned), String(result.skipped))
           )
           this.panel?.webview.postMessage({ type: 'cloneDone', cloned: result.cloned, skipped: result.skipped })
+          if (this.translatorService && msg.sourceLocale !== msg.targetLocale) {
+            const translateResult = await this.translatorService.translateLocale(msg.sourceLocale, msg.targetLocale, msg.overwrite || false)
+            await this.store.refresh()
+            this.update()
+            if (this.onRefresh) this.onRefresh()
+            window.showInformationMessage(
+              `🌐 Translated ${msg.sourceLocale} → ${msg.targetLocale}: ${translateResult.translated} keys translated`
+            )
+            this.panel?.webview.postMessage({ type: 'translateDone' })
+          }
         } catch (err: any) {
           window.showErrorMessage(t('dashboard.clone_failed', err.message))
           this.panel?.webview.postMessage({ type: 'cloneDone', error: true })

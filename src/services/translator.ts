@@ -246,6 +246,65 @@ export class TranslatorService {
     }
   }
 
+  async translateLocale(sourceLocale: string, targetLocale: string, overwrite: boolean = false): Promise<{ translated: number; skipped: number; errors: number }> {
+    const config = this.getConfig()
+    const usingFallback = !config.apiKey || config.engine === 'deepl-web'
+
+    const sourceKeys = this.store.getKeysForLocale(sourceLocale)
+    let translated = 0
+    let skipped = 0
+    let errors = 0
+
+    await window.withProgress(
+      {
+        location: ProgressLocation.Notification,
+        title: `🌐 i18n Pro: Translating ${sourceLocale} → ${targetLocale}`,
+        cancellable: true,
+      },
+      async (progress, token) => {
+        const total = sourceKeys.length
+        let current = 0
+
+        progress.report({ message: `Preparing ${total} keys...` })
+
+        for (const key of sourceKeys) {
+          if (token.isCancellationRequested) break
+
+          const sourceValue = this.store.getTranslation(sourceLocale, key)
+          if (!sourceValue) { skipped++; current++; continue }
+
+          const existing = this.store.getTranslation(targetLocale, key)
+          if (existing && existing !== '' && !overwrite) { skipped++; current++; continue }
+
+          const preview = sourceValue.length > 20 ? sourceValue.slice(0, 20) + '...' : sourceValue
+
+          try {
+            const result = await this.translateText(sourceValue, sourceLocale, targetLocale)
+            if (result) {
+              await this.store.setTranslation(targetLocale, key, result)
+              translated++
+              const resultPreview = result.length > 20 ? result.slice(0, 20) + '...' : result
+              progress.report({ message: `[${current + 1}/${total}] ✅ "${preview}" → "${resultPreview}"` })
+            } else {
+              errors++
+              progress.report({ message: `[${current + 1}/${total}] ❌ "${preview}" failed` })
+            }
+          } catch {
+            errors++
+            progress.report({ message: `[${current + 1}/${total}] ❌ "${preview}" error` })
+          }
+
+          current++
+          await this.delay(usingFallback ? 500 : 200)
+        }
+
+        progress.report({ message: `Done! ✅ ${translated} translated, ⏭ ${skipped} skipped, ❌ ${errors} errors` })
+      },
+    )
+
+    return { translated, skipped, errors }
+  }
+
   clearCache() {
     translationCache.clear()
   }
