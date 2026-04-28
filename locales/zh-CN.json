@@ -236,6 +236,7 @@
     "continue": "继续",
     "no_api_key": "未配置翻译 API Key，将使用 DeepL 网页翻译（速度较慢，需要浏览器支持）。是否继续？",
     "overwrite": "覆盖",
+    "overwrite_all": "覆盖所有",
     "overwrite_prompt": "Key \"{0}\" 在语言 \"{1}\" 中已有值 \"{2}\"。是否覆盖？",
     "skip": "跳过",
     "skip_all": "跳过所有"

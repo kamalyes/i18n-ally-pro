@@ -236,6 +236,7 @@
     "continue": "Continue",
     "no_api_key": "No translation API key configured, will use DeepL web translation (slower, requires browser support). Continue?",
     "overwrite": "Overwrite",
+    "overwrite_all": "Overwrite All",
     "overwrite_prompt": "Key \"{0}\" already has value \"{2}\" in locale \"{1}\". Overwrite?",
     "skip": "Skip",
     "skip_all": "Skip All"

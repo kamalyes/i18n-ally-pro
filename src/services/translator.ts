@@ -126,6 +126,8 @@ export class TranslatorService {
     let translated = 0
     let skipped = 0
     let errors = 0
+    let skipAllExisting = false
+    let overwriteAllExisting = false
 
     await window.withProgress(
       {
@@ -164,21 +166,34 @@ export class TranslatorService {
 
             const existingValue = this.store.getTranslation(locale, key)
             if (existingValue !== undefined && existingValue !== '') {
-              const shouldOverwrite = await window.showInformationMessage(
-                t('translator.overwrite_prompt', key, locale, existingValue),
-                { modal: true },
-                t('translator.overwrite'),
-                t('translator.skip'),
-                t('translator.skip_all')
-              )
-              
-              if (shouldOverwrite === t('translator.skip')) {
+              if (skipAllExisting) {
                 skipped++
                 continue
               }
-              if (shouldOverwrite === t('translator.skip_all')) {
-                skipped += targetLocales.length - targetLocales.indexOf(locale)
-                break
+              if (overwriteAllExisting) {
+                // fall through to translate
+              } else {
+                const shouldOverwrite = await window.showInformationMessage(
+                  t('translator.overwrite_prompt', key, locale, existingValue),
+                  { modal: true },
+                  t('translator.overwrite'),
+                  t('translator.overwrite_all'),
+                  t('translator.skip'),
+                  t('translator.skip_all')
+                )
+
+                if (shouldOverwrite === t('translator.skip')) {
+                  skipped++
+                  continue
+                }
+                if (shouldOverwrite === t('translator.skip_all')) {
+                  skipAllExisting = true
+                  skipped++
+                  continue
+                }
+                if (shouldOverwrite === t('translator.overwrite_all')) {
+                  overwriteAllExisting = true
+                }
               }
             }
 
