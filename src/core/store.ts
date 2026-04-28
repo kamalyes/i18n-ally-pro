@@ -13,6 +13,7 @@ export class TranslationStore extends EventEmitter {
   private detector: ProjectDetector
   private config: ProjectConfig | null = null
   private translations: TranslationMap = {}
+  private _historyService: any = null
   private files: TranslationFile[] = []
   private parserMap: Record<string, Parser> = {}
 
@@ -87,7 +88,12 @@ export class TranslationStore extends EventEmitter {
   async deleteTranslation(locale: string, key: string) {
     if (!this.translations[locale]) return
 
+    const oldValue = this.translations[locale][key]
     delete this.translations[locale][key]
+
+    if (this._historyService) {
+      this._historyService.record('delete', locale, key, oldValue, undefined)
+    }
 
     const file = this.files.find(f => f.locale === locale)
     if (file) {
@@ -97,15 +103,25 @@ export class TranslationStore extends EventEmitter {
   }
 
   async setTranslation(locale: string, key: string, value: string) {
+    const oldValue = this.translations[locale]?.[key]
+
     if (!this.translations[locale])
       this.translations[locale] = {}
     this.translations[locale][key] = value
+
+    if (this._historyService) {
+      this._historyService.record('set', locale, key, oldValue, value)
+    }
 
     const file = this.files.find(f => f.locale === locale)
     if (file) {
       await this.writeToFile(file)
       this.emit('didChange')
     }
+  }
+
+  setHistoryService(service: any) {
+    this._historyService = service
   }
 
   getDiagnostics(): DiagnosticInfo[] {
@@ -184,12 +200,21 @@ export class TranslationStore extends EventEmitter {
     if (!parser) return
 
     const localeData = this.translations[file.locale] || {}
+    const sortedData = this.sortObjectKeys(localeData)
     const data = this.config?.keystyle === 'nested'
-      ? this.nestObject(localeData)
-      : localeData
+      ? this.nestObject(sortedData)
+      : sortedData
 
     const content = parser.dump(data, true)
     fs.writeFileSync(file.filepath, content, 'utf-8')
+  }
+
+  private sortObjectKeys(obj: Record<string, string>): Record<string, string> {
+    const sorted: Record<string, string> = {}
+    for (const key of Object.keys(obj).sort()) {
+      sorted[key] = obj[key]
+    }
+    return sorted
   }
 
   findFileForKey(key: string, locale: string): TranslationFile | undefined {

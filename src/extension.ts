@@ -1,9 +1,9 @@
-import { ExtensionContext, languages, window, workspace, commands, Uri, ViewColumn, Position, Range, Selection, CodeActionKind, RelativePattern } from 'vscode'
+import { ExtensionContext, languages, window, workspace, commands, Uri, ViewColumn, Position, Range, Selection, CodeActionKind, RelativePattern, ProgressLocation } from 'vscode'
 import { TranslationStore } from './core/store'
 import { I18nHoverProvider } from './providers/hover'
 import { I18nDefinitionProvider } from './providers/definition'
 import { I18nDiagnosticProvider } from './providers/diagnostic'
-import { I18nTreeProvider } from './providers/tree'
+import { I18nTreeProvider, I18nDragAndDropController } from './providers/tree'
 import { I18nCodeLensProvider } from './providers/codelens'
 import { I18nInlineEditProvider } from './providers/inlineEdit'
 import { I18nCompletionProvider } from './providers/completion'
@@ -13,12 +13,14 @@ import { ErrorCodeSyncService } from './services/errorCodeSync'
 import { LocaleInitService } from './services/localeInit'
 import { RefactorService } from './services/refactor'
 import { KeyDependencyService } from './services/keyDependency'
+import { QualityCheckService } from './services/qualityCheck'
+import { TranslationHistoryService } from './services/translationHistory'
 import { StatusBarService } from './services/statusBar'
 import { TranslationMatrixPanel } from './providers/matrixPanel'
 import { ProgressDashboard } from './providers/progressDashboard'
 import { KeyEditorPanel } from './providers/keyEditorPanel'
 import { DiffViewPanel } from './providers/diffViewPanel'
-import { initI18n, reloadI18n, getCurrentLanguage, t } from './i18n'
+import { initI18n, reloadI18n, getCurrentLanguage, t, getLocaleFlag } from './i18n'
 
 let store: TranslationStore | null = null
 let diagnosticProvider: I18nDiagnosticProvider | null = null
@@ -31,6 +33,8 @@ let progressDashboard: ProgressDashboard | null = null
 let treeProvider: I18nTreeProvider | null = null
 let keyEditorPanel: KeyEditorPanel | null = null
 let keyDependencyService: KeyDependencyService | null = null
+let qualityCheckService: QualityCheckService | null = null
+let translationHistoryService: TranslationHistoryService | null = null
 let diffViewPanel: DiffViewPanel | null = null
 let diffOutputChannel: import('vscode').OutputChannel | null = null
 
@@ -54,8 +58,16 @@ export async function activate(context: ExtensionContext) {
   commands.executeCommand('setContext', 'i18nAllyPro.hasTranslations', true)
 
   treeProvider = new I18nTreeProvider(store)
+  const dragAndDropController = new I18nDragAndDropController(store, () => {
+    store?.refresh()
+    treeProvider?.refresh()
+  })
   context.subscriptions.push(
-    window.registerTreeDataProvider('i18nAllyPro.tree', treeProvider),
+    window.createTreeView('i18nAllyPro.tree', {
+      treeDataProvider: treeProvider,
+      dragAndDropController,
+      showCollapseAll: true,
+    }),
   )
 
   let initialized = false
@@ -191,6 +203,9 @@ function registerServices(context: ExtensionContext) {
   localeInitService = new LocaleInitService(store, translatorService)
   refactorService = new RefactorService(store)
   keyDependencyService = new KeyDependencyService(store)
+  qualityCheckService = new QualityCheckService(store)
+  translationHistoryService = new TranslationHistoryService(store)
+  store.setHistoryService(translationHistoryService)
   matrixPanel = new TranslationMatrixPanel(store)
   progressDashboard = new ProgressDashboard(store, () => { treeProvider?.refresh() })
   diffViewPanel = new DiffViewPanel(store)
@@ -558,6 +573,254 @@ function registerCommands(context: ExtensionContext) {
       window.showInformationMessage(t('misc.deleted', result.files))
       await store.refresh()
       treeProvider?.refresh()
+    }),
+    commands.registerCommand('i18nAllyPro.addKey', async (node?: any) => {
+      if (!store) return
+      let prefix = ''
+      if (node && node.keypath) {
+        prefix = node.keypath + '.'
+      }
+      const key = await window.showInputBox({
+        prompt: t('editor.add_key_prompt'),
+        placeHolder: prefix ? `${prefix}new_key` : 'error.xxx.yyy',
+        value: prefix,
+        validateInput: (v) => {
+          if (!v) return t('editor.key_required')
+          if (/\s/.test(v)) return t('editor.key_no_spaces')
+          if (store!.getTranslation(store!.projectConfig.sourceLanguage, v) !== undefined) return t('editor.key_exists')
+          return null
+        },
+      })
+      if (!key) return
+
+      const sourceValue = await window.showInputBox({
+        prompt: t('editor.add_key_source_value', store.projectConfig.sourceLanguage, key),
+        placeHolder: '',
+      })
+      if (sourceValue === undefined) return
+
+      await store.setTranslation(store.projectConfig.sourceLanguage, key, sourceValue)
+
+      const shouldTranslate = await window.showInformationMessage(
+        t('editor.add_key_translate', key),
+        t('editor.translate'),
+        t('editor.skip'),
+      )
+      if (shouldTranslate === t('editor.translate')) {
+        const { TranslatorService } = await import('./services/translator')
+        const ts = new TranslatorService(store)
+        const sourceLocale = store.projectConfig.sourceLanguage
+        const targetLocales = store.locales.filter(l => l !== sourceLocale)
+        let translated = 0
+        for (const locale of targetLocales) {
+          try {
+            const result = await ts.translateText(sourceValue, store.projectConfig.sourceLanguage, locale)
+            if (result) {
+              await store.setTranslation(locale, key, result)
+              translated++
+            }
+          } catch { /* skip */ }
+        }
+        window.showInformationMessage(t('editor.add_key_done', key, String(translated)))
+      } else {
+        window.showInformationMessage(t('editor.add_key_done_no_translate', key))
+      }
+
+      await store.refresh()
+      treeProvider?.refresh()
+      keyEditorPanel?.show(key)
+    }),
+    commands.registerCommand('i18nAllyPro.batchTranslateGroup', async (node?: any) => {
+      if (!store || !node?.keypath) return
+      const groupPrefix = node.keypath
+      const allKeys = store.getAllKeys().filter(k => k.startsWith(groupPrefix + '.') || k === groupPrefix)
+
+      if (allKeys.length === 0) {
+        window.showWarningMessage(t('editor.group_empty', groupPrefix))
+        return
+      }
+
+      const sourceLocale = store.projectConfig.sourceLanguage
+      const targetLocales = store.locales.filter(l => l !== sourceLocale)
+
+      const pendingItems: { key: string; sourceValue: string; locale: string }[] = []
+      for (const key of allKeys) {
+        const sourceValue = store.getTranslation(sourceLocale, key)
+        if (!sourceValue) continue
+        for (const locale of targetLocales) {
+          const existing = store.getTranslation(locale, key)
+          if (existing === undefined || existing === '') {
+            pendingItems.push({ key, sourceValue, locale })
+          }
+        }
+      }
+
+      if (pendingItems.length === 0) {
+        window.showInformationMessage(t('editor.group_all_translated', groupPrefix))
+        return
+      }
+
+      const { TranslatorService } = await import('./services/translator')
+      const ts = new TranslatorService(store)
+      let translated = 0
+      let errors = 0
+      let skipped = 0
+      const total = pendingItems.length
+
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: `🌐 i18n Pro: ${t('editor.batch_translate_group', groupPrefix)}`,
+          cancellable: true,
+        },
+        async (progress, token) => {
+          progress.report({ message: `[0/${total}] ⏳ Preparing...`, increment: 0 })
+
+          for (let i = 0; i < pendingItems.length; i++) {
+            if (token.isCancellationRequested) break
+            const { key, sourceValue, locale } = pendingItems[i]
+            const preview = sourceValue.length > 20 ? sourceValue.slice(0, 20) + '...' : sourceValue
+            const pct = ((i + 1) / total) * 100
+
+            progress.report({
+              message: `[${i + 1}/${total}] 🔤 "${preview}" → ${getLocaleFlag(locale)} ${locale}`,
+              increment: 100 / total,
+            })
+            try {
+              const result = await ts.translateText(sourceValue, sourceLocale, locale)
+              if (result) {
+                await store!.setTranslation(locale, key, result)
+                translated++
+              } else {
+                skipped++
+              }
+            } catch {
+              errors++
+            }
+          }
+
+          progress.report({
+            message: `[${total}/${total}] ✅ ${translated} translated, ❌ ${errors} errors, ⏭️ ${skipped} skipped`,
+          })
+        },
+      )
+
+      await store.refresh()
+      treeProvider?.refresh()
+      window.showInformationMessage(t('editor.batch_translate_result', groupPrefix, String(translated), String(errors)))
+    }),
+    commands.registerCommand('i18nAllyPro.deleteGroup', async (node?: any) => {
+      if (!store || !refactorService || !node?.keypath) return
+      const groupPrefix = node.keypath
+      const allKeys = store.getAllKeys().filter(k => k.startsWith(groupPrefix + '.') || k === groupPrefix)
+
+      if (allKeys.length === 0) {
+        window.showWarningMessage(t('editor.group_empty', groupPrefix))
+        return
+      }
+
+      const confirm = await window.showWarningMessage(
+        t('editor.delete_group_confirm', groupPrefix, String(allKeys.length)),
+        { modal: true },
+        t('editor.delete'),
+      )
+      if (confirm !== t('editor.delete')) return
+
+      let deleted = 0
+      for (const key of allKeys) {
+        await refactorService.deleteKey(key)
+        deleted++
+      }
+      window.showInformationMessage(t('editor.deleted_group', groupPrefix, String(deleted)))
+      await store.refresh()
+      treeProvider?.refresh()
+    }),
+    commands.registerCommand('i18nAllyPro.sortKeys', async (node?: any) => {
+      if (!store) return
+      const locale = node?.locale
+      if (!locale) return
+
+      const keys = store.getKeysForLocale(locale)
+      const sorted = [...keys].sort()
+      if (JSON.stringify(keys) === JSON.stringify(sorted)) {
+        window.showInformationMessage(t('editor.already_sorted', locale))
+        return
+      }
+
+      const translations: Record<string, string> = {}
+      for (const key of sorted) {
+        const v = store.getTranslation(locale, key)
+        if (v !== undefined) translations[key] = v
+      }
+
+      const file = store.findFileForKey('', locale)
+      if (file) {
+        const { JsonParser } = await import('./parsers/json')
+        const parser = new JsonParser()
+        const data = store.projectConfig.keystyle === 'nested'
+          ? store.nestObject(translations)
+          : translations
+        const content = parser.dump(data, true)
+        const fs = await import('fs')
+        fs.writeFileSync(file.filepath, content, 'utf-8')
+      }
+
+      await store.refresh()
+      treeProvider?.refresh()
+      window.showInformationMessage(t('editor.sorted', locale))
+    }),
+    commands.registerCommand('i18nAllyPro.searchKeys', async () => {
+      if (!treeProvider) return
+      const keyword = await window.showInputBox({
+        prompt: t('editor.search_prompt'),
+        placeHolder: 'error.xxx',
+      })
+      if (keyword !== undefined) {
+        treeProvider.setSearchFilter(keyword)
+      }
+    }),
+    commands.registerCommand('i18nAllyPro.clearSearch', () => {
+      if (!treeProvider) return
+      treeProvider.clearSearchFilter()
+    }),
+    commands.registerCommand('i18nAllyPro.qualityCheck', async () => {
+      if (!qualityCheckService) return
+      await qualityCheckService.showQualityReport()
+    }),
+    commands.registerCommand('i18nAllyPro.undoTranslation', async () => {
+      if (!translationHistoryService) return
+      if (!translationHistoryService.canUndo()) {
+        window.showWarningMessage(t('editor.no_undo_history'))
+        return
+      }
+      const success = await translationHistoryService.undo()
+      if (success) {
+        await store?.refresh()
+        treeProvider?.refresh()
+        window.showInformationMessage(t('editor.undo_success'))
+      } else {
+        window.showErrorMessage(t('editor.undo_failed'))
+      }
+    }),
+    commands.registerCommand('i18nAllyPro.showTranslationHistory', () => {
+      if (!translationHistoryService) return
+      const history = translationHistoryService.getHistory()
+      if (history.length === 0) {
+        window.showInformationMessage(t('editor.no_history'))
+        return
+      }
+      const outputChannel = window.createOutputChannel('i18n Translation History')
+      outputChannel.clear()
+      outputChannel.appendLine(`📜 i18n Translation History (${history.length} entries)`)
+      outputChannel.appendLine('')
+      for (const entry of [...history].reverse()) {
+        const time = new Date(entry.timestamp).toLocaleString()
+        const oldPreview = entry.oldValue ? (entry.oldValue.length > 30 ? entry.oldValue.slice(0, 30) + '...' : entry.oldValue) : '(empty)'
+        const newPreview = entry.newValue ? (entry.newValue.length > 30 ? entry.newValue.slice(0, 30) + '...' : entry.newValue) : '(empty)'
+        outputChannel.appendLine(`[${time}] ${entry.action} | ${getLocaleFlag(entry.locale)} ${entry.locale} | ${entry.key}`)
+        outputChannel.appendLine(`  ${oldPreview} → ${newPreview}`)
+      }
+      outputChannel.show()
     }),
     commands.registerCommand('i18nAllyPro.findUnusedKeys', async () => {
       if (!store || !refactorService) return

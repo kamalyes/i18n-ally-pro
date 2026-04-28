@@ -111,6 +111,42 @@
         "title": "%i18nAllyPro.deleteKey.title%"
       },
       {
+        "command": "i18nAllyPro.addKey",
+        "title": "%i18nAllyPro.addKey.title%"
+      },
+      {
+        "command": "i18nAllyPro.batchTranslateGroup",
+        "title": "%i18nAllyPro.batchTranslateGroup.title%"
+      },
+      {
+        "command": "i18nAllyPro.deleteGroup",
+        "title": "%i18nAllyPro.deleteGroup.title%"
+      },
+      {
+        "command": "i18nAllyPro.sortKeys",
+        "title": "%i18nAllyPro.sortKeys.title%"
+      },
+      {
+        "command": "i18nAllyPro.searchKeys",
+        "title": "%i18nAllyPro.searchKeys.title%"
+      },
+      {
+        "command": "i18nAllyPro.clearSearch",
+        "title": "%i18nAllyPro.clearSearch.title%"
+      },
+      {
+        "command": "i18nAllyPro.qualityCheck",
+        "title": "%i18nAllyPro.qualityCheck.title%"
+      },
+      {
+        "command": "i18nAllyPro.undoTranslation",
+        "title": "%i18nAllyPro.undoTranslation.title%"
+      },
+      {
+        "command": "i18nAllyPro.showTranslationHistory",
+        "title": "%i18nAllyPro.showTranslationHistory.title%"
+      },
+      {
         "command": "i18nAllyPro.findUnusedKeys",
         "title": "%i18nAllyPro.findUnusedKeys.title%"
       },
@@ -179,6 +215,43 @@
           "command": "i18nAllyPro.openKeyEditor",
           "when": "view == i18nAllyPro.tree && viewItem == key",
           "group": "navigation@1"
+        },
+        {
+          "command": "i18nAllyPro.addKey",
+          "when": "view == i18nAllyPro.tree && viewItem == localeRoot",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "i18nAllyPro.addKey",
+          "when": "view == i18nAllyPro.tree && viewItem == group",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "i18nAllyPro.batchTranslateGroup",
+          "when": "view == i18nAllyPro.tree && viewItem == group",
+          "group": "2_batch@1"
+        },
+        {
+          "command": "i18nAllyPro.deleteGroup",
+          "when": "view == i18nAllyPro.tree && viewItem == group",
+          "group": "1_modification@3"
+        },
+        {
+          "command": "i18nAllyPro.sortKeys",
+          "when": "view == i18nAllyPro.tree && viewItem == localeRoot",
+          "group": "3_utils@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "i18nAllyPro.searchKeys",
+          "when": "view == i18nAllyPro.tree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "i18nAllyPro.refresh",
+          "when": "view == i18nAllyPro.tree",
+          "group": "navigation@2"
         }
       ]
     },

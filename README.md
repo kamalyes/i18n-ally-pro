@@ -14,10 +14,21 @@
 
 ### 🌳 侧边栏树视图
 
+<!-- TODO: 插入树视图截图 -->
+![Tree View](https://cdn.jsdelivr.net/gh/kamalyes/i18n-ally-pro@master/docs/assets/tree-view.png)
+
 - **国旗图标**：每个语言节点显示对应的国旗图标
 - **点击打开**：点击语言节点自动打开对应的 JSON 翻译文件
 - **自动刷新**：翻译文件变更时自动刷新树视图
 - **手动刷新**：标题栏刷新按钮，随时重新加载
+- **🔍 搜索过滤**：标题栏搜索按钮，按 key 名称或翻译值过滤
+- **➕ 新增 Key**：右键语言根节点或分组节点，新增 i18n key
+- **✏️ 重命名 Key**：右键 key 节点，全局重命名
+- **🗑️ 删除 Key**：右键 key 节点，从所有语言中删除
+- **🌐 批量翻译分组**：右键分组节点，一键翻译该分组下所有缺失项
+- **🗑️ 删除分组**：右键分组节点，删除整个分组及其所有 key
+- **🔀 拖拽移动 Key**：拖拽 key 或分组到另一个分组，自动移动并重命名
+- **📊 完成率统计**：分组节点显示 `已填充/总数` 的完成率
 
 ### 📝 右侧 Key 编辑器 (Key Editor Panel)
 
@@ -29,7 +40,10 @@
 - **📂 文件跳转**：点击 📂 按钮跳转到对应 JSON 文件的 key 所在行
 - **💾 保存**：编辑后点击 💾 保存，支持 `Ctrl+S` 快捷键
 - **🗑️ 删除**：从指定语言中删除该 key 的翻译
-- **操作反馈**：保存、翻译、删除等操作均有通知提示
+- **🈳 补全剩余**：一键补全当前 key 所有语言的缺失翻译
+- **🔄 覆盖所有**：一键覆盖当前 key 所有语言的翻译
+- **✏️ 自定义文本**：输入自定义文本覆盖所有语言
+- **操作反馈**：保存、翻译、删除等操作均有 Toast 通知提示
 
 ### 📊 翻译矩阵 (Translation Matrix)
 
@@ -52,6 +66,7 @@
 - **缺失翻译列表**：快速定位翻译缺口，点击跳转
 - **🤖 Auto Translate 按钮**：一键批量翻译所有缺失项
 - **🔄 Refresh 按钮**：手动刷新仪表盘数据
+- **⏸️ 暂停翻译**：批量翻译过程中可随时暂停
 - **点击跳转**：分类进度和缺失项均可点击跳转到编辑器
 - **操作反馈**：按钮点击有 loading 状态和 toast 提示
 
@@ -67,12 +82,15 @@
 - 支持 **Google / DeepL / OpenAI / Microsoft** 四大翻译引擎
 - **完整语言专项支持**：中文繁体、中文简体、缅甸语、老挝语、高棉语、泰语、越南语、印尼语、马来语等
 - **翻译缓存**：避免重复调用 API，节省费用
+- **并发翻译**：支持并发调用翻译 API，大幅提升批量翻译速度
+- **动态进度**：批量翻译时显示实时进度，包含源文本预览和目标语言国旗
 - **三种翻译入口**：
   - 🤖 **Dashboard 批量翻译**：在进度仪表盘点击「🤖 Auto Translate」按钮，自动翻译所有缺失项
   - 🤖 **右侧编辑器单 key 翻译**：在 Key Editor 中点击 🤖 按钮，翻译当前语言的缺失项
   - 🤖 **Hover 翻译**：在代码或 JSON 文件中悬浮，点击「🤖 Translate Missing」翻译缺失语言
 - **自动翻译**：保存翻译文件时自动翻译空 key（可配置 `autoTranslateOnSave`）
 - **自定义端点**：支持配置代理或私有部署的 API 端点
+- **确认覆盖**：自动翻译时，已有翻译的 key 会弹出确认提示，防止误覆盖
 
 ### ✏️ Inline 编辑
 
@@ -98,6 +116,20 @@
 - **筛选过滤**：按缺失、空值、不同状态筛选
 - **点击跳转**：点击 key 可跳转到对应翻译文件
 
+### 🔍 翻译质量检查 (Quality Check)
+
+- **占位符一致性检查**：检测翻译中 `%s`、`%d`、`{name}` 等占位符是否在所有语言中保持一致
+- **长度异常检测**：检测翻译长度与源语言差异过大（>5x 或 <0.2x）的情况
+- **空源值检测**：检测源语言中值为空的 key
+- **可视化报告**：在 Output Channel 中输出详细的质量检查报告
+
+### 📜 翻译历史与撤销
+
+- **自动记录**：每次翻译修改（新增、修改、删除）自动记录到历史
+- **一键撤销**：撤销最近一次翻译修改，恢复到修改前的值
+- **历史查看**：查看所有翻译修改历史，包含时间、操作类型、key、旧值和新值
+- **最多 200 条**：历史记录最多保留 200 条，自动淘汰最旧的记录
+
 ### 💡 自动补全
 
 - **智能补全**：在 Go / Vue / React 代码中输入 i18n key 时自动弹出补全列表
@@ -111,13 +143,15 @@
 - **悬浮详情**：鼠标悬浮显示 key 数量、语言数、缺失翻译数
 - **点击跳转**：点击打开 Progress Dashboard
 
-### 🔧  重构工具
+### 🔧 重构工具
 
 - **重命名 Key**：全局替换 i18n key，同时更新翻译文件和代码引用
 - **删除 Key**：从所有语言文件中删除指定 key
 - **查找未使用 Key**：扫描代码库，找出没有被引用的翻译 key
 - **批量删除未使用 Key**：一键清理所有未使用的翻译
 - **Diff 报告**：生成翻译差异报告，查看缺失和空值详情
+- **Key 排序**：按字母顺序排序指定语言的 JSON key
+- **拖拽移动**：在树视图中拖拽 key 到新分组
 
 ### 🌐 国际化
 
@@ -156,7 +190,7 @@ npx vsce package --allow-missing-repository
 
 ### 翻译 API 配置
 
-使用机器翻译功能前，需要配置翻译 API Key。详见 [翻译 API 配置指南](docs/translator-setup.md)。
+使用机器翻译功能前，需要配置翻译 API Key。详见 [翻译 API 配置指南](https://cdn.jsdelivr.net/gh/kamalyes/i18n-ally-pro@master/docs/assets/translator-setup.png)。
 
 快速配置（以 Google 为例）：
 
@@ -201,9 +235,20 @@ npx vsce package --allow-missing-repository
 | `i18n Pro: Inline Translate Missing` | 在代码中 inline 翻译缺失语言 |
 | `i18n Pro: Rename i18n Key` | 重命名 key（全局替换） |
 | `i18n Pro: Delete i18n Key` | 删除 key |
+| `i18n Pro: Add New i18n Key` | 新增 i18n key（含自动翻译） |
+| `i18n Pro: Batch Translate Group` | 批量翻译分组下所有缺失项 |
+| `i18n Pro: Delete Key Group` | 删除整个 key 分组 |
+| `i18n Pro: Sort Translation Keys` | 按字母顺序排序翻译 key |
+| `i18n Pro: Search Keys` | 搜索过滤 i18n key |
+| `i18n Pro: Clear Search Filter` | 清除搜索过滤 |
+| `i18n Pro: Quality Check` | 翻译质量检查（占位符 & 一致性） |
+| `i18n Pro: Undo Last Translation Change` | 撤销上次翻译修改 |
+| `i18n Pro: Show Translation History` | 显示翻译修改历史 |
 | `i18n Pro: Find Unused Keys` | 查找未使用的 key |
 | `i18n Pro: Delete Unused Keys` | 删除未使用的 key |
 | `i18n Pro: Clear Translation Cache` | 清除翻译缓存 |
+| `i18n Pro: Init Locales from Go` | 从 Go 初始化语言配置 |
+| `i18n Pro: Complete Missing Keys` | 一键补全缺失 key |
 
 ## ⚙️ 配置
 
@@ -220,6 +265,7 @@ npx vsce package --allow-missing-repository
 | `i18nAllyPro.translatorApiEndpoint` | `string` | `""` | 自定义 API 端点（支持代理/私有部署） |
 | `i18nAllyPro.autoTranslateOnSave` | `boolean` | `false` | 保存时自动翻译空 key |
 | `i18nAllyPro.errorCodesPath` | `string` | `""` | Go ErrorCode 文件路径（留空自动检测） |
+| `i18nAllyPro.ignoreDirs` | `string[]` | `[]` | 扫描时额外忽略的目录（与默认值合并） |
 
 ## 🏗 项目结构
 
@@ -230,14 +276,15 @@ i18n-ally-pro/
 │   ├── i18n/                     # 插件自身国际化
 │   │   └── index.ts              # i18n 加载器 + 国旗映射
 │   ├── core/
-│   │   ├── store.ts              # 翻译数据存储
+│   │   ├── store.ts              # 翻译数据存储（含历史记录）
 │   │   ├── detector.ts           # 项目配置检测
+│   │   ├── constants.ts          # 常量定义
 │   │   └── types.ts              # 类型定义
 │   ├── providers/
 │   │   ├── hover.ts              # Hover 提供者（代码 + JSON）
 │   │   ├── definition.ts         # 定义跳转提供者
 │   │   ├── diagnostic.ts         # 诊断提供者
-│   │   ├── tree.ts               # 侧边栏树视图（国旗图标 + 点击打开）
+│   │   ├── tree.ts               # 侧边栏树视图（拖拽 + 搜索 + 右键菜单）
 │   │   ├── codelens.ts           # CodeLens 提供者
 │   │   ├── completion.ts         # 自动补全提供者
 │   │   ├── inlineEdit.ts         # Inline 编辑 CodeAction
@@ -248,9 +295,18 @@ i18n-ally-pro/
 │   ├── services/
 │   │   ├── extraction.ts         # 文本提取服务
 │   │   ├── translator.ts         # 翻译服务（Google/DeepL/OpenAI/Microsoft）
+│   │   ├── translators/          # 翻译引擎模块
+│   │   │   ├── base.ts           # 翻译引擎基类
+│   │   │   ├── google.ts         # Google 翻译
+│   │   │   ├── deepl.ts          # DeepL 翻译
+│   │   │   ├── openai.ts         # OpenAI 翻译
+│   │   │   └── microsoft.ts      # Microsoft 翻译
+│   │   ├── localeInit.ts         # 语言初始化服务
 │   │   ├── errorCodeSync.ts      # ErrorCode 同步服务
 │   │   ├── refactor.ts           # 重构服务
-│   │   ├── keyDependency.ts      # Key 依赖图服务（频率统计 + 批量清理）
+│   │   ├── keyDependency.ts      # Key 依赖图服务
+│   │   ├── qualityCheck.ts       # 翻译质量检查服务
+│   │   ├── translationHistory.ts # 翻译历史与撤销服务
 │   │   └── statusBar.ts          # Status Bar 状态服务
 │   ├── scanners/
 │   │   ├── go.ts                 # Go 代码扫描器
@@ -262,10 +318,13 @@ i18n-ally-pro/
 │   │   ├── po.ts                 # PO 解析器
 │   │   └── properties.ts         # Properties 解析器
 │   └── utils/
+│       ├── concurrency.ts        # 并发控制工具
 │       └── slug.ts               # 工具函数
 ├── locales/                      # 插件自身翻译文件
 │   ├── en.json                   # 英文
 │   └── zh-CN.json                # 中文
+├── scripts/
+│   └── build-with-env.js         # 环境变量注入构建脚本
 ├── docs/
 │   ├── translator-setup.md       # 翻译 API 配置指南
 │   └── assets/                   # 截图资源

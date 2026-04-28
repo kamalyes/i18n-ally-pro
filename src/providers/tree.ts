@@ -1,10 +1,9 @@
 import {
   TreeDataProvider, TreeItem, TreeItemCollapsibleState, Command, EventEmitter, Event,
-  Uri, ThemeIcon,
+  Uri, ThemeIcon, ThemeColor, TreeDragAndDropController, DataTransfer, DataTransferItem, window,
 } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { getLocaleFlag } from '../i18n'
-import { t } from '../i18n'
+import { getLocaleFlag, t } from '../i18n'
 
 type I18nNode = RootNode | GroupNode | KeyNode | PlaceholderNode
 
@@ -30,10 +29,21 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
 
   private store: TranslationStore
   private listenerAttached = false
+  private searchFilter: string = ''
 
   constructor(store: TranslationStore) {
     this.store = store
     this.attachStoreListener()
+  }
+
+  setSearchFilter(filter: string) {
+    this.searchFilter = filter.toLowerCase()
+    this.refresh()
+  }
+
+  clearSearchFilter() {
+    this.searchFilter = ''
+    this.refresh()
   }
 
   private attachStoreListener() {
@@ -67,7 +77,12 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
           const v = this.store.getTranslation(element.locale, k)
           return v !== undefined && v !== ''
         }).length
-        item.description = `${filled}/${keys.length} keys`
+        const pct = keys.length > 0 ? Math.round((filled / keys.length) * 100) : 100
+        const hasMissing = filled < keys.length
+        item.description = hasMissing ? `${pct}% (${filled}/${keys.length})` : `✅ ${pct}%`
+        if (element.isSource) {
+          item.iconPath = new ThemeIcon('folder', new ThemeColor('gitDecoration.modifiedResourceForeground'))
+        }
       } catch {
         item.description = ''
       }
@@ -80,6 +95,25 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
       item.iconPath = ThemeIcon.Folder
       item.tooltip = element.keypath
       item.contextValue = 'group'
+      try {
+        const allKeys = this.store.getAllKeys().filter(k => k.startsWith(element.keypath + '.') || k === element.keypath)
+        const locales = this.store.locales
+        const totalSlots = allKeys.length * locales.length
+        const filledSlots = allKeys.reduce((acc, k) => {
+          return acc + locales.filter(l => {
+            const v = this.store.getTranslation(l, k)
+            return v !== undefined && v !== ''
+          }).length
+        }, 0)
+        const pct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 100
+        const hasMissing = filledSlots < totalSlots
+        item.description = hasMissing ? `${pct}% (${filledSlots}/${totalSlots})` : `✅ ${pct}%`
+        if (hasMissing) {
+          item.iconPath = new ThemeIcon('folder', new ThemeColor('list.warningForeground'))
+        }
+      } catch {
+        item.description = ''
+      }
       return item
     }
 
@@ -128,13 +162,29 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     if (element instanceof RootNode) {
-      const keys = this.store.getKeysForLocale(element.locale)
+      let keys = this.store.getKeysForLocale(element.locale)
+      if (this.searchFilter) {
+        keys = keys.filter(k => {
+          if (k.toLowerCase().includes(this.searchFilter)) return true
+          const v = this.store.getTranslation(element.locale, k)
+          if (v && v.toLowerCase().includes(this.searchFilter)) return true
+          return false
+        })
+      }
       return this.buildNodes(keys, element.locale)
     }
 
     if (element instanceof GroupNode) {
-      const keys = this.store.getKeysForLocale(element.locale)
+      let keys = this.store.getKeysForLocale(element.locale)
         .filter(k => k.startsWith(element.keypath + '.') || k === element.keypath)
+      if (this.searchFilter) {
+        keys = keys.filter(k => {
+          if (k.toLowerCase().includes(this.searchFilter)) return true
+          const v = this.store.getTranslation(element.locale, k)
+          if (v && v.toLowerCase().includes(this.searchFilter)) return true
+          return false
+        })
+      }
       return this.buildNodes(keys, element.locale, element.keypath)
     }
 
@@ -177,5 +227,96 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     return nodes
+  }
+}
+
+export class I18nDragAndDropController implements TreeDragAndDropController<I18nNode> {
+  readonly dragMimeTypes = ['application/vnd.code.i18n.key']
+  readonly dropMimeTypes = ['application/vnd.code.i18n.key']
+
+  private store: TranslationStore
+  private onRefresh: () => void
+
+  constructor(store: TranslationStore, onRefresh: () => void) {
+    this.store = store
+    this.onRefresh = onRefresh
+  }
+
+  handleDrag(source: readonly I18nNode[], dataTransfer: DataTransfer, token: import('vscode').CancellationToken): void | Thenable<void> {
+    const keys: string[] = []
+    for (const node of source) {
+      if (node instanceof KeyNode) {
+        keys.push(node.keypath)
+      } else if (node instanceof GroupNode) {
+        const groupKeys = this.store.getAllKeys().filter(k => k.startsWith(node.keypath + '.') || k === node.keypath)
+        keys.push(...groupKeys)
+      }
+    }
+    if (keys.length > 0) {
+      dataTransfer.set('application/vnd.code.i18n.key', new DataTransferItem(JSON.stringify(keys)))
+    }
+  }
+
+  async handleDrop(target: I18nNode | undefined, dataTransfer: DataTransfer, token: import('vscode').CancellationToken): Promise<void> {
+    const item = dataTransfer.get('application/vnd.code.i18n.key')
+    if (!item) return
+
+    let keys: string[] = []
+    try {
+      keys = JSON.parse(item.value)
+    } catch {
+      return
+    }
+    if (keys.length === 0) return
+
+    let targetPrefix = ''
+    if (target instanceof GroupNode) {
+      targetPrefix = target.keypath
+    } else if (target instanceof RootNode) {
+      targetPrefix = ''
+    } else {
+      return
+    }
+
+    const renames: { oldKey: string; newKey: string }[] = []
+    for (const oldKey of keys) {
+      const parts = oldKey.split('.')
+      const lastPart = parts[parts.length - 1]
+      const newKey = targetPrefix ? `${targetPrefix}.${lastPart}` : lastPart
+      if (oldKey !== newKey) {
+        renames.push({ oldKey, newKey })
+      }
+    }
+
+    if (renames.length === 0) return
+
+    const confirm = await window.showWarningMessage(
+      t('editor.drag_confirm', String(renames.length)),
+      { modal: true },
+      t('editor.move'),
+    )
+    if (confirm !== t('editor.move')) return
+
+    for (const { oldKey, newKey } of renames) {
+      if (this.store.getTranslation(this.store.projectConfig.sourceLanguage, newKey) !== undefined) {
+        const overwrite = await window.showWarningMessage(
+          t('editor.drag_key_exists', newKey),
+          t('editor.overwrite'),
+          t('editor.skip'),
+        )
+        if (overwrite !== t('editor.overwrite')) continue
+      }
+
+      for (const locale of this.store.locales) {
+        const value = this.store.getTranslation(locale, oldKey)
+        if (value !== undefined) {
+          await this.store.setTranslation(locale, newKey, value)
+          await this.store.deleteTranslation(locale, oldKey)
+        }
+      }
+    }
+
+    this.onRefresh()
+    window.showInformationMessage(t('editor.drag_done', String(renames.length)))
   }
 }
