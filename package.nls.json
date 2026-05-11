@@ -8,6 +8,7 @@
   "i18nAllyPro.autoTranslate.title": "i18n Pro: Auto Translate Empty Keys",
   "i18nAllyPro.translateKey.title": "i18n Pro: Translate Current Key",
   "i18nAllyPro.syncErrorCodes.title": "i18n Pro: Sync Error Codes from Go",
+  "i18nAllyPro.translateGoFile.title": "i18n Pro: AI Translate from Go File",
   "i18nAllyPro.addErrorCode.title": "i18n Pro: Add New Error Code",
   "i18nAllyPro.addErrorCodeWizard.title": "i18n Pro: Add Error Code Wizard (with auto-translate)",
   "i18nAllyPro.showMatrix.title": "i18n Pro: Show Translation Matrix",

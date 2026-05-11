@@ -8,6 +8,7 @@
   "i18nAllyPro.autoTranslate.title": "i18n Pro: 自动翻译空 Key",
   "i18nAllyPro.translateKey.title": "i18n Pro: 翻译当前 Key",
   "i18nAllyPro.syncErrorCodes.title": "i18n Pro: 从 Go 同步错误码",
+  "i18nAllyPro.translateGoFile.title": "i18n Pro: 从 Go 文件 AI 翻译",
   "i18nAllyPro.addErrorCode.title": "i18n Pro: 添加错误码",
   "i18nAllyPro.addErrorCodeWizard.title": "i18n Pro: 添加错误码向导（含自动翻译）",
   "i18nAllyPro.showMatrix.title": "i18n Pro: 显示翻译矩阵",

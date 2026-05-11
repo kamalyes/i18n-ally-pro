@@ -391,6 +391,60 @@ function registerCommands(context: ExtensionContext) {
       await store.refresh()
       treeProvider?.refresh()
     }),
+    commands.registerCommand('i18nAllyPro.translateGoFile', async (uri?: Uri) => {
+      if (!store || !errorCodeSyncService) return
+      if (!uri) {
+        uri = await new Promise<Uri | undefined>((resolve) => {
+          import('vscode').then(({ window }) => {
+            window.showOpenDialog({
+              canSelectFiles: true,
+              canSelectFolders: false,
+              canSelectMany: false,
+              filters: { Go: ['go'] },
+              openLabel: 'Select Go File',
+            }).then(uris => resolve(uris?.[0]))
+          })
+        })
+      }
+      if (!uri) return
+
+      const goFilePath = uri.fsPath
+      const content = require('fs').readFileSync(goFilePath, 'utf-8')
+      const constMap = errorCodeSyncService.parseGoConsts(content)
+
+      if (constMap.size === 0) {
+        window.showWarningMessage(t('misc.no_go_keys', goFilePath))
+        return
+      }
+
+      const allKeys = Array.from(constMap.values())
+      const sourceLocale = store.projectConfig.sourceLanguage
+
+      const targetLocales = store.locales.filter(l => l !== sourceLocale)
+      let emptyCount = 0
+      for (const key of allKeys) {
+        for (const locale of targetLocales) {
+          const val = store.getTranslation(locale, key)
+          if (val === undefined || val === '') emptyCount++
+        }
+      }
+
+      const choice = await window.showInformationMessage(
+        `Found ${allKeys.length} keys, ${emptyCount} empty translations. AI translate?`,
+        { modal: true },
+        t('misc.translate_go_file'),
+        t('misc.cancel'),
+      )
+
+      if (choice !== t('misc.translate_go_file')) return
+
+      const result = await errorCodeSyncService.translateFromGoFile(goFilePath)
+      const report = `✅ Done! Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`
+      window.showInformationMessage(report)
+
+      await store.refresh()
+      treeProvider?.refresh()
+    }),
     commands.registerCommand('i18nAllyPro.addErrorCode', async () => {
       if (!store || !errorCodeSyncService) return
       const constName = await window.showInputBox({

@@ -67,6 +67,10 @@
         "title": "%i18nAllyPro.syncErrorCodes.title%"
       },
       {
+        "command": "i18nAllyPro.translateGoFile",
+        "title": "%i18nAllyPro.translateGoFile.title%"
+      },
+      {
         "command": "i18nAllyPro.addErrorCode",
         "title": "%i18nAllyPro.addErrorCode.title%"
       },
@@ -188,6 +192,10 @@
         {
           "command": "i18nAllyPro.translateKey",
           "when": "i18nAllyPro.hasTranslations"
+        },
+        {
+          "command": "i18nAllyPro.translateGoFile",
+          "when": "i18nAllyPro.hasTranslations"
         }
       ],
       "editor/context": [
@@ -198,6 +206,28 @@
         {
           "command": "i18nAllyPro.translateKey",
           "when": "editorHasSelection && i18nAllyPro.hasTranslations"
+        },
+        {
+          "command": "i18nAllyPro.translateGoFile",
+          "when": "resourceLangId == go && i18nAllyPro.hasTranslations",
+          "group": "i18nAllyPro@1"
+        },
+        {
+          "command": "i18nAllyPro.syncErrorCodes",
+          "when": "resourceLangId == go && i18nAllyPro.hasTranslations",
+          "group": "i18nAllyPro@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "i18nAllyPro.translateGoFile",
+          "when": "resourceExtname == .go && i18nAllyPro.hasTranslations",
+          "group": "i18nAllyPro@1"
+        },
+        {
+          "command": "i18nAllyPro.syncErrorCodes",
+          "when": "resourceExtname == .go && i18nAllyPro.hasTranslations",
+          "group": "i18nAllyPro@2"
         }
       ],
       "view/item/context": [

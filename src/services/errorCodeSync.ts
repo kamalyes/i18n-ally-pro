@@ -2,7 +2,8 @@ import { window, workspace, Uri, ProgressLocation, Position, Range, Selection, V
 import fs from 'fs'
 import path from 'path'
 import { TranslationStore } from '../core/store'
-import { getIgnoreDirs } from '../core/constants'
+import { getIgnoreDirs, DEFAULT_CONCURRENCY } from '../core/constants'
+import { Concurrency } from '../utils/concurrency'
 
 const GO_CONST_PATTERN = /(\w+)\s*=\s*"([\w.]+)"/g
 
@@ -388,6 +389,99 @@ export class ErrorCodeSyncService {
     })
 
     return files.length > 0 ? files[0] : null
+  }
+
+  async translateFromGoFile(goFilePath: string): Promise<{ synced: number; translated: number; skipped: number; errors: number; missingKeys: string[] }> {
+    const content = fs.readFileSync(goFilePath, 'utf-8')
+    const constMap = this.parseGoConsts(content)
+
+    if (constMap.size === 0) {
+      window.showWarningMessage('No i18n constants found in this Go file')
+      return { synced: 0, translated: 0, skipped: 0, errors: 0, missingKeys: [] }
+    }
+
+    const { TranslatorService } = await import('./translator')
+    const translator = new TranslatorService(this.store)
+    const config = this.store.projectConfig
+    const sourceLocale = config.sourceLanguage
+    const targetLocales = this.store.locales.filter(l => l !== sourceLocale)
+
+    const allKeys = Array.from(constMap.values())
+    const missingKeys: string[] = []
+    for (const key of allKeys) {
+      const sourceValue = this.store.getTranslation(sourceLocale, key)
+      if (sourceValue === undefined || sourceValue === '') {
+        missingKeys.push(key)
+      }
+    }
+
+    let synced = 0
+    for (const key of missingKeys) {
+      for (const locale of this.store.locales) {
+        const existing = this.store.getTranslation(locale, key)
+        if (existing === undefined) {
+          await this.store.setTranslation(locale, key, '')
+          synced++
+        }
+      }
+    }
+
+    let translated = 0
+    let skipped = 0
+    let errors = 0
+
+    await window.withProgress(
+      {
+        location: ProgressLocation.Notification,
+        title: '🌐 i18n Pro: AI translating from Go file',
+        cancellable: true,
+      },
+      async (progress, token) => {
+        const total = allKeys.length * targetLocales.length
+        let current = 0
+
+        const tasks = allKeys.map(key => async () => {
+          const sourceValue = this.store.getTranslation(sourceLocale, key)
+          if (!sourceValue) {
+            skipped += targetLocales.length
+            current += targetLocales.length
+            return
+          }
+
+          for (const locale of targetLocales) {
+            if (token.isCancellationRequested) return
+            current++
+
+            const existing = this.store.getTranslation(locale, key)
+            if (existing !== undefined && existing !== '') {
+              skipped++
+              progress.report({ message: `[${current}/${total}] ⏭ ${key} → ${locale}`, increment: 100 / total })
+              continue
+            }
+
+            progress.report({ message: `[${current}/${total}] 🔄 ${key} → ${locale}`, increment: 100 / total })
+
+            try {
+              const result = await translator.translateText(sourceValue, sourceLocale, locale)
+              if (result) {
+                await this.store.setTranslation(locale, key, result)
+                translated++
+                progress.report({ message: `[${current}/${total}] ✅ ${key} → ${locale}` })
+              } else {
+                skipped++
+              }
+            } catch (err: any) {
+              errors++
+              progress.report({ message: `[${current}/${total}] ❌ ${key} → ${locale}: ${err.message}` })
+            }
+          }
+        })
+
+        await Concurrency.run(tasks, DEFAULT_CONCURRENCY.TRANSLATION, undefined, token)
+      },
+    )
+
+    return { synced, translated, skipped, errors, missingKeys }
   }
 
   private isGoKeyword(name: string): boolean {
