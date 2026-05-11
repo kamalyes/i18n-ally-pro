@@ -27,7 +27,8 @@ class I18n {
     'nl-NL': 'nl', 'no': 'no', 'pl': 'pl', 'pt': 'pt', 'pt-BR': 'br',
     'ro': 'ro', 'ru': 'ru', 'sv': 'se', 'sv-SE': 'se', 'tc': 'tw',
     'th': 'th', 'tr': 'tr', 'uk': 'ua', 'ur': 'pk', 'vi': 'vn',
-    'zh': 'cn', 'zh-CN': 'cn', 'zh-Hans': 'cn', 'zh-Hant': 'tw', 'zh-TW': 'tw',
+    'zh': 'cn', 'zh-CN': 'cn', 'zh-Hans': 'cn', 'zh-Hant': 'tw', 'zh-TW': 'tw', 'zh-tw': 'tw',
+    'fr-fr': 'fr', 'pt-br': 'br', 'nl-nl': 'nl', 'sv-se': 'se', 'nb-no': 'no',
   }
 
   init(extensionPath: string) {
@@ -133,17 +134,36 @@ class I18n {
     return text
   }
 
+  private resolveFromMap(map: Record<string, string>, locale: string): string | undefined {
+    if (map[locale]) return map[locale]
+    const lower = locale.toLowerCase()
+    if (map[lower]) return map[lower]
+    for (const key of Object.keys(map)) {
+      if (key.toLowerCase() === lower) return map[key]
+    }
+    return undefined
+  }
+
   getLocaleFlag(locale: string): string {
-    return this.localeFlags[locale] || this.fallbackLocaleFlags[locale] || '🌐'
+    return this.resolveFromMap(this.localeFlags, locale)
+      || this.resolveFromMap(this.fallbackLocaleFlags, locale)
+      || '🌐'
   }
 
   getLocaleName(locale: string): string {
-    return this.localeNames[locale] || this.fallbackLocaleNames[locale] || locale
+    return this.resolveFromMap(this.localeNames, locale)
+      || this.resolveFromMap(this.fallbackLocaleNames, locale)
+      || locale
   }
 
   getLocaleCountryCode(locale: string): string {
     if (I18n.LOCALE_TO_COUNTRY[locale]) return I18n.LOCALE_TO_COUNTRY[locale]
-    const prefix = locale.split('-')[0].toLowerCase()
+    const lower = locale.toLowerCase()
+    if (I18n.LOCALE_TO_COUNTRY[lower]) return I18n.LOCALE_TO_COUNTRY[lower]
+    for (const key of Object.keys(I18n.LOCALE_TO_COUNTRY)) {
+      if (key.toLowerCase() === lower) return I18n.LOCALE_TO_COUNTRY[key]
+    }
+    const prefix = lower.split('-')[0]
     return I18n.LOCALE_TO_COUNTRY[prefix] || prefix
   }
 

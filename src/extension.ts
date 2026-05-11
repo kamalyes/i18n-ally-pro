@@ -757,7 +757,7 @@ function registerCommands(context: ExtensionContext) {
       if (file) {
         const { JsonParser } = await import('./parsers/json')
         const parser = new JsonParser()
-        const data = store.projectConfig.keystyle === 'nested'
+        const data = file?.parser === 'json'
           ? store.nestObject(translations)
           : translations
         const content = parser.dump(data, true)

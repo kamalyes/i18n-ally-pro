@@ -8,7 +8,7 @@ async function getPlaywright() {
   try {
     return await import('playwright')
   } catch {
-    throw new Error('playwright package is not installed. Run: npm install playwright')
+    throw new Error('playwright package is not installed. Run: npx playwright install')
   }
 }
 

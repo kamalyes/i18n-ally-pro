@@ -254,7 +254,8 @@ export class TranslationMatrixPanel {
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    html, body { height: 100%; overflow: hidden; }
+    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; }
     .toolbar { padding: 12px 20px; border-bottom: 1px solid #333; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .toolbar h2 { color: #4CAF50; font-size: 16px; margin-right: 8px; }
     .search-box { flex: 1; min-width: 200px; max-width: 400px; padding: 6px 12px; background: #2d2d2d; border: 1px solid #555; border-radius: 4px; color: #d4d4d4; font-size: 13px; outline: none; }
@@ -274,7 +275,7 @@ export class TranslationMatrixPanel {
     .filter-group { display: flex; gap: 6px; align-items: center; }
     .filter-btn { padding: 3px 10px; border-radius: 12px; border: 1px solid #555; background: transparent; color: #aaa; font-size: 11px; cursor: pointer; }
     .filter-btn.active { background: #4CAF50; border-color: #4CAF50; color: #fff; }
-    .table-wrap { overflow: auto; max-height: calc(100vh - 140px); }
+    .table-wrap { overflow: auto; flex: 1; min-height: 0; }
     table { border-collapse: collapse; width: 100%; }
     tr:hover { background: rgba(255,255,255,0.03); }
     tr.row-incomplete { border-left: 3px solid #f48771; }

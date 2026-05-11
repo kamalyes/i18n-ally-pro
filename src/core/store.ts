@@ -180,9 +180,7 @@ export class TranslationStore extends EventEmitter {
         if (!parser) continue
 
         const raw = parser.parse(content)
-        const flat = this.config?.keystyle === 'nested'
-          ? this.flattenObject(raw)
-          : raw as Record<string, string>
+        const flat = this.flattenObject(raw)
 
         if (!this.translations[file.locale])
           this.translations[file.locale] = {}
@@ -201,7 +199,7 @@ export class TranslationStore extends EventEmitter {
 
     const localeData = this.translations[file.locale] || {}
     const sortedData = this.sortObjectKeys(localeData)
-    const data = this.config?.keystyle === 'nested'
+    const data = file.parser === 'json'
       ? this.nestObject(sortedData)
       : sortedData
 
@@ -245,7 +243,7 @@ export class TranslationStore extends EventEmitter {
         const dir = path.dirname(sourceFile.filepath)
         const ext = path.extname(sourceFile.filepath)
         const newFilePath = path.join(dir, `${targetLocale}${ext}`)
-        const nestedData = this.config?.keystyle === 'nested'
+        const nestedData = sourceFile.parser === 'json'
           ? this.nestObject(this.sortObjectKeys(this.translations[targetLocale]))
           : this.sortObjectKeys(this.translations[targetLocale])
         fs.writeFileSync(newFilePath, JSON.stringify(nestedData, null, 2) + '\n', 'utf-8')
@@ -275,7 +273,8 @@ export class TranslationStore extends EventEmitter {
 
     try {
       const content = fs.readFileSync(filepath, 'utf-8')
-      return parser.navigateToKey(content, key, this.config?.keystyle || 'flat')
+      const keyStyle: KeyStyle = file.parser === 'json' ? 'nested' : (this.config?.keystyle || 'flat')
+      return parser.navigateToKey(content, key, keyStyle)
     }
     catch {
       return null

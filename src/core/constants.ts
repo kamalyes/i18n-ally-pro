@@ -30,10 +30,11 @@ export const COMMON_LOCALES = [
 
 export const SUPPORTED_LOCALES = [
   'en', 'zh', 'zh-tw', 'ja', 'ko',
-  'de', 'fr', 'es', 'pt', 'ru',
-  'it', 'nl', 'ar', 'hi', 'th',
-  'vi', 'id', 'ms', 'tr', 'pl',
-  'uk', 'cs', 'sv', 'da', 'fi',
+  'de', 'fr', 'fr-fr', 'es', 'pt',
+  'pt-br', 'ru', 'it', 'nl', 'nl-nl',
+  'ar', 'hi', 'th', 'vi', 'id',
+  'ms', 'tr', 'pl', 'uk', 'cs',
+  'sv', 'sv-se', 'da', 'fi',
   'el', 'he', 'ro',
 ] as const
 
@@ -47,11 +48,14 @@ export const LOCALE_NAMES: Record<string, string> = {
   'ko': '한국어',
   'de': 'Deutsch',
   'fr': 'Français',
+  'fr-fr': 'Français (France)',
   'es': 'Español',
   'pt': 'Português',
+  'pt-br': 'Português (Brasil)',
   'ru': 'Русский',
   'it': 'Italiano',
   'nl': 'Nederlands',
+  'nl-nl': 'Nederlands (Nederland)',
   'ar': 'العربية',
   'hi': 'हिन्दी',
   'th': 'ไทย',
@@ -63,6 +67,7 @@ export const LOCALE_NAMES: Record<string, string> = {
   'uk': 'Українська',
   'cs': 'Čeština',
   'sv': 'Svenska',
+  'sv-se': 'Svenska (Sverige)',
   'da': 'Dansk',
   'fi': 'Suomi',
   'el': 'Ελληνικά',

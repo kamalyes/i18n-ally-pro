@@ -15,7 +15,7 @@ export class DeepLWebTranslatorAdapter {
         const { DeepLWebTranslator } = await import('../utils/translate')
         this.webTranslator = new DeepLWebTranslator()
       } catch (err: any) {
-        throw new Error('DeepL Web translation requires the playwright package. Install it with: npm install playwright')
+        throw new Error('DeepL Web translation requires the playwright package. Install it with: npx playwright install')
       }
     }
     return this.webTranslator

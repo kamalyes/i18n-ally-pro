@@ -436,16 +436,12 @@ export class KeyEditorPanel {
       const btn = event.currentTarget;
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'edit', key, locale, value: textarea.value });
-      showToast(I18N.saving);
-      setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.saved.replace('{0}', key).replace('{1}', locale)); }, 800);
     }
 
     function translateKey(locale, key) {
       const btn = event.currentTarget;
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'translate', key, locale });
-      showToast(I18N.translating);
-      setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.translated.replace('{0}', key).replace('{1}', locale)); }, 800);
     }
 
     function openFile(locale, key) {
@@ -486,6 +482,8 @@ export class KeyEditorPanel {
       const msg = event.data;
       if (msg.type === 'toast') {
         showToast(msg.message, msg.level === 'error' ? 'error' : msg.level === 'warn' ? 'warn' : undefined);
+        document.querySelectorAll('.btn.loading').forEach(b => b.classList.remove('loading'));
+        document.querySelectorAll('.btn-action.loading').forEach(b => b.classList.remove('loading'));
       }
     });
   </script>
