@@ -37,13 +37,18 @@ export class TranslatorService {
 
   getConfig(): TranslatorServiceConfig {
     const cfg = workspace.getConfiguration('i18nAllyPro')
-    const userApiKey = cfg.get<string>('translatorApiKey', '')
+    const configuredEngine = cfg.get<TranslatorEngine>('translatorEngine', 'google')
+    const userApiKey = cfg.get<string>('translatorApiKey', '').trim()
+    const builtinApiKey = BUILTIN_DEEPL_API_KEY.trim()
     
     // 优先使用用户配置的API密钥，如果没有则使用内置密钥
-    const effectiveApiKey = userApiKey || BUILTIN_DEEPL_API_KEY
+    const effectiveApiKey = userApiKey || builtinApiKey
+    const effectiveEngine = !userApiKey && builtinApiKey && configuredEngine !== 'deepl-web'
+      ? 'deepl'
+      : configuredEngine
     
     return {
-      engine: cfg.get<TranslatorEngine>('translatorEngine', 'google'),
+      engine: effectiveEngine,
       apiKey: effectiveApiKey,
       apiEndpoint: cfg.get<string>('translatorApiEndpoint', ''),
       sourceLanguage: this.store.projectConfig.sourceLanguage,
@@ -60,6 +65,9 @@ export class TranslatorService {
     const config = this.getConfig()
     if (!config.apiKey || config.engine === 'deepl-web') {
       return 'deepl-web (fallback)'
+    }
+    if (config.engine === 'deepl' && config.apiKey === BUILTIN_DEEPL_API_KEY.trim()) {
+      return 'deepl (built-in)'
     }
     return config.engine
   }
@@ -103,7 +111,7 @@ export class TranslatorService {
     return result
   }
 
-  async autoTranslateEmptyKeys(): Promise<{ translated: number; skipped: number; errors: number }> {
+  async autoTranslateEmptyKeys(): Promise<{ translated: number; skipped: number; errors: number; errorMessages: string[] }> {
     const config = this.getConfig()
     const usingFallback = !config.apiKey || config.engine === 'deepl-web'
 
@@ -115,7 +123,7 @@ export class TranslatorService {
         t('translator.cancel')
       )
       if (proceed !== t('translator.continue')) {
-        return { translated: 0, skipped: 0, errors: 0 }
+        return { translated: 0, skipped: 0, errors: 0, errorMessages: [] }
       }
     }
 
@@ -126,8 +134,10 @@ export class TranslatorService {
     let translated = 0
     let skipped = 0
     let errors = 0
+    const errorMessages: string[] = []
     let skipAllExisting = false
     let overwriteAllExisting = false
+    let quotaExceeded = false
 
     await window.withProgress(
       {
@@ -144,7 +154,7 @@ export class TranslatorService {
         })
 
         for (const key of sourceKeys) {
-          if (token.isCancellationRequested) break
+          if (token.isCancellationRequested || quotaExceeded) break
 
           const sourceValue = this.store.getTranslation(sourceLocale, key)
           if (!sourceValue) {
@@ -156,7 +166,7 @@ export class TranslatorService {
           const preview = sourceValue.length > 20 ? sourceValue.slice(0, 20) + '...' : sourceValue
 
           for (const locale of targetLocales) {
-            if (token.isCancellationRequested) break
+            if (token.isCancellationRequested || quotaExceeded) break
 
             current++
             progress.report({
@@ -214,8 +224,16 @@ export class TranslatorService {
             catch (err: any) {
               console.error(`Translation failed for ${key} → ${locale}:`, err)
               errors++
+              if (errorMessages.length < 5) {
+                errorMessages.push(this.formatTranslationError(key, locale, err))
+              }
+              if (this.isQuotaExceededError(err)) {
+                quotaExceeded = true
+              }
               progress.report({
-                message: `[${current}/${total}] ❌ "${preview}" → ${getLocaleFlag(locale)} failed`,
+                message: quotaExceeded
+                  ? `[${current}/${total}] ❌ DeepL quota exceeded. Batch stopped.`
+                  : `[${current}/${total}] ❌ "${preview}" → ${getLocaleFlag(locale)} failed`,
               })
             }
 
@@ -229,7 +247,7 @@ export class TranslatorService {
       },
     )
 
-    return { translated, skipped, errors }
+    return { translated, skipped, errors, errorMessages }
   }
 
   async translateSingleKey(key: string, locale: string): Promise<string | null> {
@@ -241,7 +259,7 @@ export class TranslatorService {
       return await this.translateText(sourceValue, config.sourceLanguage, locale)
     }
     catch (err: any) {
-      window.showErrorMessage(`Translation failed: ${err.message}`)
+      window.showErrorMessage(`Translation failed: ${this.formatTranslationError(key, locale, err)}`)
       return null
     }
   }
@@ -254,6 +272,7 @@ export class TranslatorService {
     let translated = 0
     let skipped = 0
     let errors = 0
+    let quotaExceeded = false
 
     await window.withProgress(
       {
@@ -268,7 +287,7 @@ export class TranslatorService {
         progress.report({ message: `Preparing ${total} keys...` })
 
         for (const key of sourceKeys) {
-          if (token.isCancellationRequested) break
+          if (token.isCancellationRequested || quotaExceeded) break
 
           const sourceValue = this.store.getTranslation(sourceLocale, key)
           if (!sourceValue) { skipped++; current++; continue }
@@ -289,9 +308,14 @@ export class TranslatorService {
               errors++
               progress.report({ message: `[${current + 1}/${total}] ❌ "${preview}" failed` })
             }
-          } catch {
+          } catch (err: any) {
             errors++
-            progress.report({ message: `[${current + 1}/${total}] ❌ "${preview}" error` })
+            quotaExceeded = this.isQuotaExceededError(err)
+            progress.report({
+              message: quotaExceeded
+                ? `[${current + 1}/${total}] ❌ DeepL quota exceeded. Batch stopped.`
+                : `[${current + 1}/${total}] ❌ "${preview}" error`,
+            })
           }
 
           current++
@@ -315,5 +339,17 @@ export class TranslatorService {
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  private isQuotaExceededError(err: any): boolean {
+    const message = err?.message || String(err)
+    return /HTTP\s+456/i.test(message) || /quota exceeded/i.test(message)
+  }
+
+  private formatTranslationError(key: string, locale: string, err: any): string {
+    if (this.isQuotaExceededError(err)) {
+      return `${key} -> ${locale}: DeepL API quota exceeded. Configure another API key or switch translator engine.`
+    }
+    return `${key} -> ${locale}: ${err?.message || String(err)}`
   }
 }

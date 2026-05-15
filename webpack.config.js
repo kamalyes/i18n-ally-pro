@@ -15,6 +15,9 @@ module.exports = {
     vscode: 'commonjs vscode',
   },
   plugins: [
+    new webpack.DefinePlugin({
+      'process.env.BUILTIN_DEEPL_API_KEY': JSON.stringify(process.env.BUILTIN_DEEPL_API_KEY || ''),
+    }),
     new webpack.IgnorePlugin({ resourceRegExp: /^playwright$/ }),
     new webpack.IgnorePlugin({ resourceRegExp: /^playwright-core$/ }),
   ],

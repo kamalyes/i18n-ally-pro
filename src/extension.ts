@@ -318,7 +318,10 @@ function registerCommands(context: ExtensionContext) {
       if (!store || !translatorService) return
       const engine = translatorService.getEffectiveEngine()
       const result = await translatorService.autoTranslateEmptyKeys()
-      const msg = t('misc.translate_result', engine, result.translated, result.skipped, result.errors)
+      const firstError = result.errorMessages?.[0]
+      const msg = firstError
+        ? `${t('misc.translate_result', engine, result.translated, result.skipped, result.errors)} | ${firstError}`
+        : t('misc.translate_result', engine, result.translated, result.skipped, result.errors)
       if (result.errors > 0)
         window.showWarningMessage(msg)
       else

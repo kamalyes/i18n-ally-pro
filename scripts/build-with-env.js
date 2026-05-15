@@ -32,7 +32,7 @@ if (!builtinApiKey) {
 }
 
 console.log('🚀 开始构建 i18n Ally Pro 扩展...')
-console.log(`🔑 内置 DeepL API 密钥: ${builtinApiKey.slice(0, 10)}...${builtinApiKey.slice(-3)}`)
+console.log('🔑 内置 DeepL API 密钥: 已加载')
 
 // 设置环境变量并运行构建
 process.env.BUILTIN_DEEPL_API_KEY = builtinApiKey
