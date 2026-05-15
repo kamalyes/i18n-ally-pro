@@ -13,6 +13,7 @@
   "i18nAllyPro.addErrorCodeWizard.title": "i18n Pro: Add Error Code Wizard (with auto-translate)",
   "i18nAllyPro.showMatrix.title": "i18n Pro: Show Translation Matrix",
   "i18nAllyPro.showDashboard.title": "i18n Pro: Show Progress Dashboard",
+  "i18nAllyPro.formatTranslations.title": "i18n Pro: Format Translation Files",
   "i18nAllyPro.checkIntegrity.title": "i18n Pro: Check Integrity (Go consts vs JSON)",
   "i18nAllyPro.goToGoConst.title": "i18n Pro: Go to Go Const Definition",
   "i18nAllyPro.goToJsonKey.title": "i18n Pro: Go to JSON Translation",

@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
 import { ProjectDetector } from './detector'
-import { TranslationMap, TranslationFile, ProjectConfig, KeyStyle, DiagnosticInfo } from './types'
+import { TranslationMap, TranslationFile, ProjectConfig, KeyStyle, DiagnosticInfo, ParserId } from './types'
 import { JsonParser } from '../parsers/json'
 import { YamlParser } from '../parsers/yaml'
 import { PoParser } from '../parsers/po'
@@ -160,12 +160,53 @@ export class TranslationStore extends EventEmitter {
       const parts = key.split('.')
       let current = result
       for (let i = 0; i < parts.length - 1; i++) {
-        if (!current[parts[i]])
-          current[parts[i]] = {}
-        current = current[parts[i]]
+        const part = parts[i]
+        const existing = current[part]
+        if (existing === undefined) {
+          current[part] = {}
+        } else if (!this.isPlainObject(existing)) {
+          throw new Error(`Cannot nest "${key}" because "${parts.slice(0, i + 1).join('.')}" already has a value`)
+        }
+        current = current[part]
       }
-      current[parts[parts.length - 1]] = value
+      const leaf = parts[parts.length - 1]
+      if (this.isPlainObject(current[leaf])) {
+        throw new Error(`Cannot nest "${key}" because it is already used as a group`)
+      }
+      current[leaf] = value
     }
+    return result
+  }
+
+  async formatAllFiles(keyStyle: KeyStyle = 'nested'): Promise<{ formatted: number; unchanged: number; errors: string[] }> {
+    const result = { formatted: 0, unchanged: 0, errors: [] as string[] }
+    const files = this.files.length > 0 ? this.files : await this.detector.findTranslationFiles()
+
+    for (const file of files) {
+      const parser = this.parserMap[file.parser]
+      if (!parser) continue
+
+      try {
+        const content = fs.readFileSync(file.filepath, 'utf-8')
+        const flat = this.sortObjectKeys(this.flattenObject(parser.parse(content)))
+        const data = this.shapeDataForParser(file.parser, flat, keyStyle)
+        const next = parser.dump(data, true)
+
+        if (next === content) {
+          result.unchanged++
+          continue
+        }
+
+        fs.writeFileSync(file.filepath, next, 'utf-8')
+        result.formatted++
+      }
+      catch (err: any) {
+        result.errors.push(`${file.filepath}: ${err.message}`)
+      }
+    }
+
+    await this.loadAll()
+    this.emit('didChange')
     return result
   }
 
@@ -199,12 +240,32 @@ export class TranslationStore extends EventEmitter {
 
     const localeData = this.translations[file.locale] || {}
     const sortedData = this.sortObjectKeys(localeData)
-    const data = file.parser === 'json'
-      ? this.nestObject(sortedData)
-      : sortedData
+    const data = this.shapeDataForParser(file.parser, sortedData, this.getWriteKeyStyle(file.parser))
 
     const content = parser.dump(data, true)
     fs.writeFileSync(file.filepath, content, 'utf-8')
+  }
+
+  private shapeDataForParser(parserId: ParserId, data: Record<string, string>, keyStyle: KeyStyle): Record<string, any> {
+    if (this.supportsNestedOutput(parserId) && keyStyle === 'nested')
+      return this.nestObject(data)
+    return data
+  }
+
+  private getWriteKeyStyle(parserId: ParserId): KeyStyle {
+    if (parserId === 'json')
+      return 'nested'
+    if (this.supportsNestedOutput(parserId))
+      return this.config?.keystyle || 'flat'
+    return 'flat'
+  }
+
+  private supportsNestedOutput(parserId: ParserId): boolean {
+    return parserId === 'json' || parserId === 'yaml'
+  }
+
+  private isPlainObject(value: unknown): value is Record<string, any> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
   }
 
   private sortObjectKeys(obj: Record<string, string>): Record<string, string> {

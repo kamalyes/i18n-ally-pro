@@ -87,6 +87,10 @@
         "title": "%i18nAllyPro.showDashboard.title%"
       },
       {
+        "command": "i18nAllyPro.formatTranslations",
+        "title": "%i18nAllyPro.formatTranslations.title%"
+      },
+      {
         "command": "i18nAllyPro.checkIntegrity",
         "title": "%i18nAllyPro.checkIntegrity.title%"
       },
@@ -195,6 +199,10 @@
         },
         {
           "command": "i18nAllyPro.translateGoFile",
+          "when": "i18nAllyPro.hasTranslations"
+        },
+        {
+          "command": "i18nAllyPro.formatTranslations",
           "when": "i18nAllyPro.hasTranslations"
         }
       ],

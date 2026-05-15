@@ -13,6 +13,7 @@
   "i18nAllyPro.addErrorCodeWizard.title": "i18n Pro: 添加错误码向导（含自动翻译）",
   "i18nAllyPro.showMatrix.title": "i18n Pro: 显示翻译矩阵",
   "i18nAllyPro.showDashboard.title": "i18n Pro: 显示进度仪表板",
+  "i18nAllyPro.formatTranslations.title": "i18n Pro: 格式化翻译文件",
   "i18nAllyPro.checkIntegrity.title": "i18n Pro: 检查完整性（Go 常量 vs JSON）",
   "i18nAllyPro.goToGoConst.title": "i18n Pro: 跳转到 Go 常量定义",
   "i18nAllyPro.goToJsonKey.title": "i18n Pro: 跳转到 JSON 翻译",

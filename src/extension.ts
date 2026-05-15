@@ -490,6 +490,18 @@ function registerCommands(context: ExtensionContext) {
       if (!store || !progressDashboard) return
       progressDashboard.show()
     }),
+    commands.registerCommand('i18nAllyPro.formatTranslations', async () => {
+      if (!store) return
+      const result = await store.formatAllFiles('nested')
+      await store.refresh()
+      treeProvider?.refresh()
+      progressDashboard?.refresh()
+      if (result.errors.length > 0) {
+        window.showWarningMessage(`Formatted ${result.formatted} file(s), ${result.errors.length} failed`)
+      } else {
+        window.showInformationMessage(`Formatted ${result.formatted} file(s), ${result.unchanged} unchanged`)
+      }
+    }),
     commands.registerCommand('i18nAllyPro.checkIntegrity', async () => {
       if (!store || !errorCodeSyncService) return
       const result = await errorCodeSyncService.checkIntegrity()

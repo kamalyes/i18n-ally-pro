@@ -42,6 +42,27 @@ export class ProgressDashboard {
           window.showErrorMessage(t('dashboard.refresh_failed', err.message))
         }
       }
+      if (msg.type === 'formatAll') {
+        try {
+          const result = await this.store.formatAllFiles('nested')
+          this.update()
+          if (this.onRefresh) this.onRefresh()
+          if (result.errors.length > 0) {
+            window.showWarningMessage(`Formatted ${result.formatted} file(s), ${result.errors.length} failed`)
+          } else {
+            window.showInformationMessage(`Formatted ${result.formatted} file(s), ${result.unchanged} unchanged`)
+          }
+          this.panel?.webview.postMessage({
+            type: 'formatDone',
+            formatted: result.formatted,
+            unchanged: result.unchanged,
+            errors: result.errors.length,
+          })
+        } catch (err: any) {
+          window.showErrorMessage(`Format failed - ${err.message}`)
+          this.panel?.webview.postMessage({ type: 'formatDone', error: true })
+        }
+      }
       if (msg.type === 'autoTranslate') {
         try {
           await commands.executeCommand('i18nAllyPro.autoTranslate')
@@ -260,7 +281,8 @@ export class ProgressDashboard {
         <div class="subtitle">${allKeys.length} keys × ${locales.length} locales = ${totalCells} translations</div>
       </div>
       <div class="header-actions">
-        <button class="btn-action" onclick="autoTranslate()" title="Auto translate all missing keys">🤖 Auto Translate</button>
+        <button class="btn-action btn-auto-translate" onclick="autoTranslate()" title="Auto translate all missing keys">🤖 Auto Translate</button>
+        <button class="btn-action btn-format" onclick="formatAll()" title="Format all locale files as nested keys">Format</button>
         <button class="btn-refresh" onclick="refresh()">🔄 Refresh</button>
       </div>
     </div>
@@ -307,6 +329,9 @@ export class ProgressDashboard {
       refreshFailed: t('dashboard.refresh_failed', '{0}'),
       autoTranslating: t('dashboard.auto_translate_started'),
       autoTranslateFailed: t('dashboard.auto_translate_failed', '{0}'),
+      formatting: 'Formatting locale files...',
+      formatComplete: 'Format complete',
+      formatFailed: 'Format failed',
     })};
     const ALL_LOCALES = ${JSON.stringify(locales)};
     const SOURCE_LOCALE = ${JSON.stringify(sourceLocale)};
@@ -346,18 +371,33 @@ export class ProgressDashboard {
       setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.refreshing); }, 1500);
     }
     function autoTranslate() {
-      const btn = document.querySelector('.btn-action');
+      const btn = document.querySelector('.btn-auto-translate');
       if (btn && btn.disabled) return;
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'autoTranslate' });
       showToast(I18N.autoTranslating);
     }
+    function formatAll() {
+      const btn = document.querySelector('.btn-format');
+      if (btn && btn.disabled) return;
+      setBtnLoading(btn, true);
+      vscode.postMessage({ type: 'formatAll' });
+      showToast(I18N.formatting);
+    }
     window.addEventListener('message', event => {
       const msg = event.data;
       if (msg.type === 'translateDone') {
-        const btn = document.querySelector('.btn-action');
+        const btn = document.querySelector('.btn-auto-translate');
         setBtnLoading(btn, false);
         showToast(msg.error ? '❌ Translate failed' : '✅ Translate complete');
+      }
+      if (msg.type === 'formatDone') {
+        const btn = document.querySelector('.btn-format');
+        setBtnLoading(btn, false);
+        const detail = msg.error
+          ? I18N.formatFailed
+          : I18N.formatComplete + ': ' + (msg.formatted || 0) + ' formatted, ' + (msg.unchanged || 0) + ' unchanged';
+        showToast(detail, msg.error || msg.errors ? 'warn' : undefined);
       }
     });
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
