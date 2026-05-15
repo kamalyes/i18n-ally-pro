@@ -1,4 +1,4 @@
-import { window, ViewColumn, Uri, commands } from 'vscode'
+import { window, ViewColumn, commands, env } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
@@ -31,7 +31,7 @@ export class ProgressDashboard {
     )
 
     this.panel.onDidDispose(() => { this.panel = null })
-    this.panel.webview.onDidReceiveMessage(async (msg: { type: string; category?: string; key?: string; sourceLocale?: string; targetLocale?: string; overwrite?: boolean }) => {
+    this.panel.webview.onDidReceiveMessage(async (msg: { type: string; category?: string; key?: string; sourceLocale?: string; targetLocale?: string; overwrite?: boolean; target?: 'codex' | 'copilot' }) => {
       if (msg.type === 'refresh') {
         try {
           await this.store.refresh()
@@ -74,6 +74,9 @@ export class ProgressDashboard {
           window.showErrorMessage(t('dashboard.auto_translate_failed', err.message))
           this.panel?.webview.postMessage({ type: 'translateDone', error: true })
         }
+      }
+      if (msg.type === 'openAIPrompt') {
+        await this.openAIPrompt(msg.target || 'codex')
       }
       if (msg.type === 'cloneLocale' && msg.sourceLocale && msg.targetLocale) {
         try {
@@ -121,6 +124,102 @@ export class ProgressDashboard {
 
   refresh() {
     this.update()
+  }
+
+  private async openAIPrompt(target: 'codex' | 'copilot') {
+    const prompt = this.buildDashboardPrompt(target)
+    await env.clipboard.writeText(prompt)
+
+    const commandsToTry = target === 'codex'
+      ? ['chatgpt.newCodexPanel', 'workbench.action.chat.open']
+      : ['workbench.action.chat.open', 'chatgpt.newCodexPanel']
+
+    for (const command of commandsToTry) {
+      if (await this.tryOpenAICommand(command, prompt)) {
+        window.showInformationMessage(`i18n AI prompt copied and opened ${target === 'codex' ? 'Codex' : 'Copilot/Chat'}`)
+        return
+      }
+    }
+
+    window.showInformationMessage('i18n AI prompt copied to clipboard')
+  }
+
+  private async tryOpenAICommand(command: string, prompt: string): Promise<boolean> {
+    try {
+      await commands.executeCommand(command, prompt)
+      return true
+    } catch {
+      try {
+        await commands.executeCommand(command, { query: prompt })
+        return true
+      } catch {
+        try {
+          await commands.executeCommand(command)
+          return true
+        } catch {
+          return false
+        }
+      }
+    }
+  }
+
+  private buildDashboardPrompt(target: 'codex' | 'copilot'): string {
+    const config = this.store.projectConfig
+    const locales = this.store.locales
+    const allKeys = this.store.getAllKeys().sort()
+    const diagnostics = this.store.getDiagnostics().filter(d => d.type === 'missing' || d.type === 'empty')
+    const missingRows = diagnostics.slice(0, 200).map(d => {
+      const sourceValue = this.store.getTranslation(config.sourceLanguage, d.key) || ''
+      return `- ${d.type}: ${d.key} -> ${d.locale || '(unknown locale)'} | source(${config.sourceLanguage}): ${sourceValue || '(empty)'}`
+    })
+
+    const localeSummaries = locales.map(locale => {
+      const filled = allKeys.filter(key => {
+        const value = this.store.getTranslation(locale, key)
+        return value !== undefined && value !== ''
+      }).length
+      const pct = allKeys.length > 0 ? Math.round(filled / allKeys.length * 100) : 100
+      return `- ${locale}: ${filled}/${allKeys.length} (${pct}%)`
+    })
+
+    const fileSummaries = this.store.getTranslationFiles()
+      .map(file => `- ${file.locale}: ${file.filepath} (${file.parser})`)
+
+    const extraCount = diagnostics.length > missingRows.length
+      ? `\n\nThere are ${diagnostics.length - missingRows.length} additional missing/empty entries not listed here. Inspect the locale files before editing.`
+      : ''
+
+    const assistantName = target === 'codex' ? 'Codex' : 'Copilot'
+
+    return `You are ${assistantName} working inside this VS Code workspace. Please complete the i18n translations shown by the i18n Ally Pro dashboard.
+
+Project root:
+${config.rootPath}
+
+Source locale:
+${config.sourceLanguage}
+
+Locales:
+${locales.join(', ')}
+
+Locale files:
+${fileSummaries.join('\n') || '- No locale files detected'}
+
+Dashboard coverage:
+${localeSummaries.join('\n') || '- No locale data'}
+
+Missing or empty translations:
+${missingRows.join('\n') || '- None'}
+${extraCount}
+
+Instructions:
+- Edit the existing locale files directly.
+- Preserve the current key naming, nesting, JSON/YAML formatting, placeholders, and interpolation tokens.
+- Use the source locale text as the translation source.
+- Keep existing non-empty translations unless they are clearly broken.
+- Search the codebase and nearby locale files for existing wording before inventing new translations.
+- After editing, run the smallest relevant validation command for this extension, such as npm run lint.
+- Report the files changed and any entries that could not be translated safely.`
   }
 
   private update() {
@@ -282,6 +381,8 @@ export class ProgressDashboard {
       </div>
       <div class="header-actions">
         <button class="btn-action btn-auto-translate" onclick="autoTranslate()" title="Auto translate all missing keys">🤖 Auto Translate</button>
+        <button class="btn-action btn-ai-prompt" onclick="openAIPrompt('codex')" title="Send current dashboard prompt to Codex">Codex</button>
+        <button class="btn-action btn-ai-prompt" onclick="openAIPrompt('copilot')" title="Send current dashboard prompt to Copilot Chat">Copilot</button>
         <button class="btn-action btn-format" onclick="formatAll()" title="Format all locale files as nested keys">Format</button>
         <button class="btn-refresh" onclick="refresh()">🔄 Refresh</button>
       </div>
@@ -383,6 +484,9 @@ export class ProgressDashboard {
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'formatAll' });
       showToast(I18N.formatting);
+    }
+    function openAIPrompt(target) {
+      vscode.postMessage({ type: 'openAIPrompt', target });
     }
     window.addEventListener('message', event => {
       const msg = event.data;
