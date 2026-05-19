@@ -14,6 +14,7 @@ import { LocaleInitService } from './services/localeInit'
 import { RefactorService } from './services/refactor'
 import { KeyDependencyService } from './services/keyDependency'
 import { QualityCheckService } from './services/qualityCheck'
+import { ExportImportService } from './services/exportImport'
 import { TranslationHistoryService } from './services/translationHistory'
 import { StatusBarService } from './services/statusBar'
 import { TranslationMatrixPanel } from './providers/matrixPanel'
@@ -34,6 +35,7 @@ let treeProvider: I18nTreeProvider | null = null
 let keyEditorPanel: KeyEditorPanel | null = null
 let keyDependencyService: KeyDependencyService | null = null
 let qualityCheckService: QualityCheckService | null = null
+let exportImportService: ExportImportService | null = null
 let translationHistoryService: TranslationHistoryService | null = null
 let diffViewPanel: DiffViewPanel | null = null
 let diffOutputChannel: import('vscode').OutputChannel | null = null
@@ -204,6 +206,7 @@ function registerServices(context: ExtensionContext) {
   refactorService = new RefactorService(store)
   keyDependencyService = new KeyDependencyService(store)
   qualityCheckService = new QualityCheckService(store)
+  exportImportService = new ExportImportService(store)
   translationHistoryService = new TranslationHistoryService(store)
   store.setHistoryService(translationHistoryService)
   matrixPanel = new TranslationMatrixPanel(store, translatorService)
@@ -867,6 +870,18 @@ function registerCommands(context: ExtensionContext) {
     commands.registerCommand('i18nAllyPro.qualityCheck', async () => {
       if (!qualityCheckService) return
       await qualityCheckService.showQualityReport()
+    }),
+    commands.registerCommand('i18nAllyPro.qualityCheckAI', async () => {
+      if (!qualityCheckService) return
+      await qualityCheckService.openQualityPromptInCopilot()
+    }),
+    commands.registerCommand('i18nAllyPro.exportTranslations', async () => {
+      if (!exportImportService) return
+      await exportImportService.exportTranslations()
+    }),
+    commands.registerCommand('i18nAllyPro.importTranslations', async () => {
+      if (!exportImportService) return
+      await exportImportService.importTranslations()
     }),
     commands.registerCommand('i18nAllyPro.undoTranslation', async () => {
       if (!translationHistoryService) return

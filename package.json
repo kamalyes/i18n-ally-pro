@@ -150,6 +150,21 @@
         "icon": "$(shield-check)"
       },
       {
+        "command": "i18nAllyPro.qualityCheckAI",
+        "title": "%i18nAllyPro.qualityCheckAI.title%",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "i18nAllyPro.exportTranslations",
+        "title": "%i18nAllyPro.exportTranslations.title%",
+        "icon": "$(export)"
+      },
+      {
+        "command": "i18nAllyPro.importTranslations",
+        "title": "%i18nAllyPro.importTranslations.title%",
+        "icon": "$(import)"
+      },
+      {
         "command": "i18nAllyPro.showDashboard",
         "title": "%i18nAllyPro.showDashboard.title%",
         "icon": "$(graph)"
