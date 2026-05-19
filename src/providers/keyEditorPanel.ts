@@ -14,9 +14,11 @@ export class KeyEditorPanel {
   private panel: import('vscode').WebviewPanel | null = null
   private currentKey: string = ''
   private suppressFocus: boolean = false
+  private onDidChange?: () => void
 
-  constructor(store: TranslationStore) {
+  constructor(store: TranslationStore, onDidChange?: () => void) {
     this.store = store
+    this.onDidChange = onDidChange
   }
 
   show(keypath: string) {
@@ -289,6 +291,8 @@ export class KeyEditorPanel {
     )
 
     this.update()
+    // Refresh tree view after batch translation
+    this.onDidChange?.()
     const resultMsg = quotaExceeded
       ? `${t('editor.batch_translate_result', key, String(translated), String(errors))} | Translator quota/rate limit reached.`
       : t('editor.batch_translate_result', key, String(translated), String(errors))

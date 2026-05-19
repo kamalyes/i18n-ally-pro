@@ -99,7 +99,7 @@ export async function activate(context: ExtensionContext) {
     }
   }
 
-  keyEditorPanel = new KeyEditorPanel(store)
+  keyEditorPanel = new KeyEditorPanel(store, () => { treeProvider?.refresh() })
   diffOutputChannel = window.createOutputChannel('i18n Ally Pro - Diff Report')
   context.subscriptions.push(diffOutputChannel)
 
