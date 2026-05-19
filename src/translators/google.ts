@@ -14,7 +14,7 @@ export class GoogleTranslator extends BaseTranslator {
 
     const result = await this.httpPost(url, body, { 'Content-Type': 'application/json' })
     const json = JSON.parse(result)
-
-    return json?.data?.translations?.[0]?.translatedText || ''
+    const translated = json?.data?.translations?.[0]?.translatedText || ''
+    return this.validateTranslation(req.text, translated, req.to)
   }
 }

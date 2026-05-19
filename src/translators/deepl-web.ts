@@ -1,12 +1,20 @@
-import { TranslateRequest, TranslatorConfig } from './base'
+import { BaseTranslator, TranslateRequest, TranslatorConfig } from './base'
 
 export class DeepLWebTranslatorAdapter {
   private webTranslator: any | null = null
+  private validator: BaseTranslator
+
+  constructor() {
+    this.validator = new class extends BaseTranslator {
+      async translate() { return '' }
+    }()
+  }
 
   async translate(req: TranslateRequest, _config: TranslatorConfig): Promise<string> {
     const translator = await this.getWebTranslator()
     const result = await translator.translate(req.text, req.to, req.from)
-    return result.text
+    const translated = result.text
+    return this.validator.validateTranslation(req.text, translated, req.to)
   }
 
   private async getWebTranslator(): Promise<any> {

@@ -141,6 +141,51 @@ export abstract class BaseTranslator {
     return locale.replace('_', '-')
   }
 
+  /**
+   * Validate that a translation result is actually in the target language.
+   * For non-Latin scripts (CJK, Bengali, Burmese, Thai, Arabic, etc.),
+   * if the result contains only ASCII/Latin characters when the source is English,
+   * the translation likely failed and returned the source text unchanged.
+   */
+  public validateTranslation(source: string, result: string, targetLocale: string): string {
+    if (!result || result.trim() === '') {
+      throw new Error('Translation returned empty result')
+    }
+
+    // If result is identical to source, translation failed
+    if (result.trim() === source.trim()) {
+      throw new Error(`Translation returned identical source text for locale "${targetLocale}" — the translation service may not support this language pair`)
+    }
+
+    // Check if target locale requires non-Latin script
+    const baseLocale = targetLocale.replace('_', '-').split('-')[0].toLowerCase()
+    const nonLatinLocales = new Set([
+      'zh', 'ja', 'ko',       // CJK
+      'ar', 'he', 'fa', 'ur', // RTL / Arabic script
+      'hi', 'bn', 'pa', 'gu', 'ta', 'te', 'kn', 'ml', 'mr', 'ne', 'si', // Indic
+      'my', 'km', 'lo', 'th', // Southeast Asian
+      'ka', 'hy', 'am',       // Caucasian / Ethiopian
+      'ru', 'uk', 'bg', 'sr', 'mk', 'mn', 'kk', // Cyrillic / Mongolian
+      'el',                    // Greek
+    ])
+
+    if (nonLatinLocales.has(baseLocale)) {
+      // For non-Latin target locales, check if result contains any non-ASCII characters
+      const hasNonAscii = /[\u0080-\uffff]/.test(result)
+      if (!hasNonAscii) {
+        // Result is pure ASCII for a non-Latin locale — translation likely failed
+        // But allow some common cases: numbers, URLs, brand names
+        const strippedResult = result.replace(/[0-9\s\W_]/g, '')
+        const strippedSource = source.replace(/[0-9\s\W_]/g, '')
+        if (strippedResult && strippedResult === strippedSource) {
+          throw new Error(`Translation for "${targetLocale}" returned Latin-only text identical to source — this locale requires non-Latin script`)
+        }
+      }
+    }
+
+    return result
+  }
+
   protected getLocaleNameForAI(locale: string): string {
     const mapping = LOCALE_MAP[locale]
     if (mapping) return mapping.openai

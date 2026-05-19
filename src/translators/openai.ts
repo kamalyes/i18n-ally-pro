@@ -43,6 +43,7 @@ export class OpenAITranslator extends BaseTranslator {
     })
 
     const json = JSON.parse(result)
-    return json?.choices?.[0]?.message?.content?.trim() || ''
+    const translated = json?.choices?.[0]?.message?.content?.trim() || ''
+    return this.validateTranslation(req.text, translated, req.to)
   }
 }

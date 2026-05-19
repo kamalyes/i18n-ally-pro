@@ -18,6 +18,7 @@ export class DeepLTranslator extends BaseTranslator {
     })
 
     const json = JSON.parse(result)
-    return json?.translations?.[0]?.text || ''
+    const translated = json?.translations?.[0]?.text || ''
+    return this.validateTranslation(req.text, translated, req.to)
   }
 }

@@ -13,6 +13,7 @@ export class MicrosoftTranslator extends BaseTranslator {
     })
 
     const json = JSON.parse(result)
-    return json?.[0]?.translations?.[0]?.text || ''
+    const translated = json?.[0]?.translations?.[0]?.text || ''
+    return this.validateTranslation(req.text, translated, req.to)
   }
 }

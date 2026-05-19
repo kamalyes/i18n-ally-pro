@@ -286,48 +286,74 @@ export class ProgressDashboard {
 
   private async openCodexTarget(): Promise<boolean> {
     const available = new Set(await commands.getCommands(true))
-    let opened = false
 
-    if (available.has('chatgpt.openSidebar')) {
-      await commands.executeCommand('chatgpt.openSidebar')
-      opened = true
-    }
-
-    if (available.has('chatgpt.newChat')) {
-      await commands.executeCommand('chatgpt.newChat')
-      return true
-    }
-
-    if (available.has('chatgpt.newCodexPanel')) {
-      await commands.executeCommand('chatgpt.newCodexPanel')
-      return true
-    }
-
-    return opened
-  }
-
-  private async openCopilotTarget(prompt: string): Promise<boolean> {
-    const attempts: Array<() => Thenable<unknown>> = [
-      () => commands.executeCommand('workbench.action.chat.open', { query: prompt }),
-      () => commands.executeCommand('workbench.action.chat.open', prompt),
-      () => commands.executeCommand('github.copilot.openChat'),
-      () => commands.executeCommand('workbench.action.chat.open'),
+    // Try Codex / ChatGPT extension commands
+    const codexCommands = [
+      'chatgpt.newCodexPanel',
+      'chatgpt.newChat',
+      'chatgpt.openSidebar',
     ]
 
-    for (const attempt of attempts) {
-      if (await this.tryCommand(attempt)) return true
+    for (const cmd of codexCommands) {
+      if (available.has(cmd)) {
+        try {
+          await commands.executeCommand(cmd)
+          return true
+        } catch {
+          // continue trying
+        }
+      }
+    }
+
+    // Fallback: open VS Code's built-in chat (Copilot) as a generic AI target
+    if (available.has('workbench.action.chat.open')) {
+      try {
+        await commands.executeCommand('workbench.action.chat.open')
+        return true
+      } catch {
+        // ignore
+      }
     }
 
     return false
   }
 
-  private async tryCommand(run: () => Thenable<unknown>): Promise<boolean> {
-    try {
-      await run()
-      return true
-    } catch {
-      return false
+  private async openCopilotTarget(prompt: string): Promise<boolean> {
+    const available = new Set(await commands.getCommands(true))
+
+    // Preferred: open chat with query pre-filled
+    if (available.has('workbench.action.chat.open')) {
+      try {
+        await commands.executeCommand('workbench.action.chat.open', { query: prompt })
+        return true
+      } catch {
+        // fallback: try without query object
+      }
+      try {
+        await commands.executeCommand('workbench.action.chat.open', prompt)
+        return true
+      } catch {
+        // fallback: just open chat
+      }
+      try {
+        await commands.executeCommand('workbench.action.chat.open')
+        return true
+      } catch {
+        // ignore
+      }
     }
+
+    // Older Copilot Chat extension command
+    if (available.has('github.copilot.openChat')) {
+      try {
+        await commands.executeCommand('github.copilot.openChat')
+        return true
+      } catch {
+        // ignore
+      }
+    }
+
+    return false
   }
 
   private buildDashboardPrompt(target: 'codex' | 'copilot'): string {

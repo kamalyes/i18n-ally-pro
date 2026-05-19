@@ -39,10 +39,6 @@
         "title": "%i18nAllyPro.openTranslation.title%"
       },
       {
-        "command": "i18nAllyPro.refresh",
-        "title": "%i18nAllyPro.refresh.title%"
-      },
-      {
         "command": "i18nAllyPro.copyKey",
         "title": "%i18nAllyPro.copyKey.title%"
       },
@@ -81,10 +77,6 @@
       {
         "command": "i18nAllyPro.showMatrix",
         "title": "%i18nAllyPro.showMatrix.title%"
-      },
-      {
-        "command": "i18nAllyPro.showDashboard",
-        "title": "%i18nAllyPro.showDashboard.title%"
       },
       {
         "command": "i18nAllyPro.formatTranslations",
@@ -147,22 +139,22 @@
       {
         "command": "i18nAllyPro.qualityCheck",
         "title": "%i18nAllyPro.qualityCheck.title%",
-        "icon": "$(shield-check)"
+        "icon": "$(shield)"
       },
       {
         "command": "i18nAllyPro.qualityCheckAI",
         "title": "%i18nAllyPro.qualityCheckAI.title%",
-        "icon": "$(sparkle)"
+        "icon": "$(zap)"
       },
       {
         "command": "i18nAllyPro.exportTranslations",
         "title": "%i18nAllyPro.exportTranslations.title%",
-        "icon": "$(export)"
+        "icon": "$(arrow-up)"
       },
       {
         "command": "i18nAllyPro.importTranslations",
         "title": "%i18nAllyPro.importTranslations.title%",
-        "icon": "$(import)"
+        "icon": "$(arrow-down)"
       },
       {
         "command": "i18nAllyPro.showDashboard",
