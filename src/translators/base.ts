@@ -99,24 +99,60 @@ export abstract class BaseTranslator {
   protected toGoogleLocale(locale: string): string {
     const mapping = LOCALE_MAP[locale]
     if (mapping) return mapping.google
-    return locale.replace('_', '-').split('-')[0]
+    // Try case-insensitive match
+    const lower = locale.toLowerCase()
+    for (const key of Object.keys(LOCALE_MAP)) {
+      if (key.toLowerCase() === lower) return LOCALE_MAP[key].google
+    }
+    // Try base language (e.g., "de-DE" -> "de")
+    const base = locale.replace('_', '-').split('-')[0]
+    const baseMapping = LOCALE_MAP[base]
+    if (baseMapping) return baseMapping.google
+    return base
   }
 
   protected toDeepLLocale(locale: string): string {
     const mapping = LOCALE_MAP[locale]
     if (mapping) return mapping.deepl
+    // Try case-insensitive match
+    const lower = locale.toLowerCase()
+    for (const key of Object.keys(LOCALE_MAP)) {
+      if (key.toLowerCase() === lower) return LOCALE_MAP[key].deepl
+    }
+    // Try base language
+    const base = locale.replace('_', '-').split('-')[0]
+    const baseMapping = LOCALE_MAP[base]
+    if (baseMapping) return baseMapping.deepl
     return locale.toUpperCase().split('-')[0]
   }
 
   protected toMicrosoftLocale(locale: string): string {
     const mapping = LOCALE_MAP[locale]
     if (mapping) return mapping.microsoft
+    // Try case-insensitive match
+    const lower = locale.toLowerCase()
+    for (const key of Object.keys(LOCALE_MAP)) {
+      if (key.toLowerCase() === lower) return LOCALE_MAP[key].microsoft
+    }
+    // Try base language
+    const base = locale.replace('_', '-').split('-')[0]
+    const baseMapping = LOCALE_MAP[base]
+    if (baseMapping) return baseMapping.microsoft
     return locale.replace('_', '-')
   }
 
   protected getLocaleNameForAI(locale: string): string {
     const mapping = LOCALE_MAP[locale]
     if (mapping) return mapping.openai
+    // Try case-insensitive match
+    const lower = locale.toLowerCase()
+    for (const key of Object.keys(LOCALE_MAP)) {
+      if (key.toLowerCase() === lower) return LOCALE_MAP[key].openai
+    }
+    // Try base language
+    const base = locale.replace('_', '-').split('-')[0]
+    const baseMapping = LOCALE_MAP[base]
+    if (baseMapping) return baseMapping.openai
     return locale
   }
 }

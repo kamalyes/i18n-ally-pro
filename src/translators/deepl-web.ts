@@ -5,7 +5,7 @@ export class DeepLWebTranslatorAdapter {
 
   async translate(req: TranslateRequest, _config: TranslatorConfig): Promise<string> {
     const translator = await this.getWebTranslator()
-    const result = await translator.translate(req.text, req.to)
+    const result = await translator.translate(req.text, req.to, req.from)
     return result.text
   }
 

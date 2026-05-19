@@ -7,13 +7,27 @@ export class OpenAITranslator extends BaseTranslator {
 
     const fromName = this.getLocaleNameForAI(req.from)
     const toName = this.getLocaleNameForAI(req.to)
+    const toCode = req.to
 
     const body = JSON.stringify({
       model: 'gpt-3.5-turbo',
       messages: [
         {
           role: 'system',
-          content: `You are a professional translator for software UI strings. Translate the following text from ${fromName} to ${toName}. Only return the translated text, nothing else. Preserve any placeholders like {name}, {count}, %s, %d, {{variable}}. Keep the translation concise and natural for native speakers.`,
+          content: [
+            `You are a professional translator for software UI strings.`,
+            `Translate the following text from ${fromName} to ${toName}.`,
+            ``,
+            `CRITICAL RULES:`,
+            `1. You MUST output ONLY the translated text in ${toName} (${toCode}). No explanations, no notes, no original text.`,
+            `2. NEVER translate into any language other than ${toName}. If unsure, still output in ${toName}.`,
+            `3. Preserve ALL placeholders exactly as they appear: {name}, {count}, %s, %d, %1$s, %(key)s, %{key}, \${var}, {{variable}}, @:link`,
+            `4. Preserve ALL HTML tags exactly: <b>, <a href>, <br/>, etc.`,
+            `5. Preserve ICU message format: {count, plural, one{...} other{...}}, {gender, select, ...}`,
+            `6. Keep the translation concise and natural for native ${toName} speakers.`,
+            `7. Match the tone and formality of the source text.`,
+            `8. If the source text is a single word or short phrase, translate it as a UI label (not a full sentence).`,
+          ].join('\n'),
         },
         {
           role: 'user',

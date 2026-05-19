@@ -71,7 +71,7 @@ export class DeepLWebTranslator {
     return SUPPORTED_LANGUAGES.includes(deeplCode)
   }
 
-  async translate(text: string, targetLang: string): Promise<DeepLWebResult> {
+  async translate(text: string, targetLang: string, sourceLang?: string): Promise<DeepLWebResult> {
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       throw new Error('text must be a non-empty string')
     }
@@ -80,11 +80,12 @@ export class DeepLWebTranslator {
     }
 
     const deeplTargetLang = DeepLWebTranslator.toDeepLLocale(targetLang)
+    const deeplSourceLang = sourceLang ? DeepLWebTranslator.toDeepLLocale(sourceLang) : 'auto'
     const browser = await this.getBrowser()
     let page: Page
 
     try {
-      page = await this.getOrCreatePage(browser, deeplTargetLang)
+      page = await this.getOrCreatePage(browser, deeplTargetLang, deeplSourceLang)
 
       await page.waitForSelector('[data-testid="translator-source-input"]', { timeout: 8000 })
 
@@ -227,7 +228,7 @@ export class DeepLWebTranslator {
     }
   }
 
-  private async getOrCreatePage(browser: Browser, deeplTargetLang: string): Promise<Page> {
+  private async getOrCreatePage(browser: Browser, deeplTargetLang: string, deeplSourceLang: string = 'auto'): Promise<Page> {
     if (this.page && !this.page.isClosed() && this.lastTargetLang === deeplTargetLang) {
       const clearButton = await this.page.$('[data-testid="translator-source-clear-button"]')
       if (clearButton) {
@@ -259,7 +260,7 @@ export class DeepLWebTranslator {
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     })
 
-    const url = `https://www.deepl.com/translator#auto/${deeplTargetLang}`
+    const url = `https://www.deepl.com/translator#${deeplSourceLang}/${deeplTargetLang}`
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
     await page.waitForSelector('[data-testid="translator-source-input"]', { timeout: 8000 })
 
