@@ -220,6 +220,7 @@ export class KeyEditorPanel {
 
     let translated = 0
     let errors = 0
+    let quotaExceeded = false
 
     await window.withProgress(
       {
@@ -234,7 +235,7 @@ export class KeyEditorPanel {
         })
 
         for (let i = 0; i < localesToTranslate.length; i++) {
-          if (token.isCancellationRequested) break
+          if (token.isCancellationRequested || quotaExceeded) break
           const locale = localesToTranslate[i]
           progress.report({
             message: `[${i + 1}/${localesToTranslate.length}] 🔤 "${sourcePreview}" → ${getLocaleFlag(locale)} ${locale}`,
@@ -258,12 +259,27 @@ export class KeyEditorPanel {
                 })
               }
             }
-          } catch {
+          } catch (err: any) {
             errors++
-            progress.report({
+            if (translator.isQuotaExceededError(err)) {
+              quotaExceeded = true
+              progress.report({
+                message: `[${i + 1}/${localesToTranslate.length}] Translator quota/rate limit reached. Batch stopped.`,
+              })
+            }
+            if (!quotaExceeded) {
+              progress.report({
               message: `[${i + 1}/${localesToTranslate.length}] ❌ "${sourcePreview}" → ${getLocaleFlag(locale)} failed`,
-            })
+              })
+            }
           }
+        }
+
+        if (quotaExceeded) {
+          progress.report({
+            message: `Stopped by quota/rate limit. ${translated} translated, ${errors} errors`,
+          })
+          return
         }
 
         progress.report({
@@ -273,9 +289,15 @@ export class KeyEditorPanel {
     )
 
     this.update()
-    const resultMsg = t('editor.batch_translate_result', key, String(translated), String(errors))
+    const resultMsg = quotaExceeded
+      ? `${t('editor.batch_translate_result', key, String(translated), String(errors))} | Translator quota/rate limit reached.`
+      : t('editor.batch_translate_result', key, String(translated), String(errors))
     this.postToast(resultMsg, errors > 0 ? 'warn' : 'success')
-    window.showInformationMessage(resultMsg)
+    if (quotaExceeded) {
+      window.showWarningMessage(resultMsg)
+    } else {
+      window.showInformationMessage(resultMsg)
+    }
   }
 
   private update() {

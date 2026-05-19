@@ -23,6 +23,13 @@ class PlaceholderNode {
   constructor(public label: string) {}
 }
 
+interface LocaleCoverageStats {
+  total: number
+  filled: number
+  pct: number
+  hasMissing: boolean
+}
+
 export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
   private _onDidChangeTreeData = new EventEmitter<I18nNode | undefined>()
   readonly onDidChangeTreeData: Event<I18nNode | undefined> = this._onDidChangeTreeData.event
@@ -72,14 +79,8 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
       const item = new TreeItem(`${flag} ${element.label}`, element.isSource ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.Collapsed)
       item.iconPath = ThemeIcon.Folder
       try {
-        const keys = this.store.getKeysForLocale(element.locale)
-        const filled = keys.filter(k => {
-          const v = this.store.getTranslation(element.locale, k)
-          return v !== undefined && v !== ''
-        }).length
-        const pct = keys.length > 0 ? Math.round((filled / keys.length) * 100) : 100
-        const hasMissing = filled < keys.length
-        item.description = hasMissing ? `${pct}% (${filled}/${keys.length})` : `✅ ${pct}%`
+        const stats = this.getLocaleCoverageStats(element.locale)
+        item.description = stats.hasMissing ? `${stats.pct}% (${stats.filled}/${stats.total})` : `✅ ${stats.pct}%`
         if (element.isSource) {
           item.iconPath = new ThemeIcon('folder', new ThemeColor('gitDecoration.modifiedResourceForeground'))
         }
@@ -96,19 +97,9 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
       item.tooltip = element.keypath
       item.contextValue = 'group'
       try {
-        const allKeys = this.store.getAllKeys().filter(k => k.startsWith(element.keypath + '.') || k === element.keypath)
-        const locales = this.store.locales
-        const totalSlots = allKeys.length * locales.length
-        const filledSlots = allKeys.reduce((acc, k) => {
-          return acc + locales.filter(l => {
-            const v = this.store.getTranslation(l, k)
-            return v !== undefined && v !== ''
-          }).length
-        }, 0)
-        const pct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 100
-        const hasMissing = filledSlots < totalSlots
-        item.description = hasMissing ? `${pct}% (${filledSlots}/${totalSlots})` : `✅ ${pct}%`
-        if (hasMissing) {
+        const stats = this.getLocaleCoverageStats(element.locale, element.keypath)
+        item.description = stats.hasMissing ? `${stats.pct}% (${stats.filled}/${stats.total})` : `✅ ${stats.pct}%`
+        if (stats.hasMissing) {
           item.iconPath = new ThemeIcon('folder', new ThemeColor('list.warningForeground'))
         }
       } catch {
@@ -162,7 +153,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     if (element instanceof RootNode) {
-      let keys = this.store.getKeysForLocale(element.locale)
+      let keys = this.store.getAllKeys()
       if (this.searchFilter) {
         keys = keys.filter(k => {
           if (k.toLowerCase().includes(this.searchFilter)) return true
@@ -175,7 +166,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     if (element instanceof GroupNode) {
-      let keys = this.store.getKeysForLocale(element.locale)
+      let keys = this.store.getAllKeys()
         .filter(k => k.startsWith(element.keypath + '.') || k === element.keypath)
       if (this.searchFilter) {
         keys = keys.filter(k => {
@@ -189,6 +180,30 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     return []
+  }
+
+  private getLocaleCoverageStats(locale: string, prefix = ''): LocaleCoverageStats {
+    const keys = this.store.getAllKeys()
+      .filter(k => !prefix || k === prefix || k.startsWith(prefix + '.'))
+
+    const total = keys.length
+    const filled = keys.filter(k => {
+      const value = this.store.getTranslation(locale, k)
+      return value !== undefined && value !== ''
+    }).length
+
+    return {
+      total,
+      filled,
+      pct: this.toCoveragePct(filled, total),
+      hasMissing: filled < total,
+    }
+  }
+
+  private toCoveragePct(filled: number, total: number): number {
+    if (total === 0) return 100
+    if (filled >= total) return 100
+    return Math.round((filled / total) * 100)
   }
 
   private buildNodes(keys: string[], locale: string, prefix = ''): I18nNode[] {

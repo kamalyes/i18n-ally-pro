@@ -207,7 +207,7 @@ function registerServices(context: ExtensionContext) {
   translationHistoryService = new TranslationHistoryService(store)
   store.setHistoryService(translationHistoryService)
   matrixPanel = new TranslationMatrixPanel(store, translatorService)
-  progressDashboard = new ProgressDashboard(store, translatorService, () => { treeProvider?.refresh() })
+  progressDashboard = new ProgressDashboard(store, translatorService, keyDependencyService, () => { treeProvider?.refresh() })
   diffViewPanel = new DiffViewPanel(store)
 
   const statusBarService = new StatusBarService(store)
@@ -734,6 +734,7 @@ function registerCommands(context: ExtensionContext) {
       let translated = 0
       let errors = 0
       let skipped = 0
+      let quotaExceeded = false
       const total = pendingItems.length
 
       await window.withProgress(
@@ -746,7 +747,7 @@ function registerCommands(context: ExtensionContext) {
           progress.report({ message: `[0/${total}] ⏳ Preparing...`, increment: 0 })
 
           for (let i = 0; i < pendingItems.length; i++) {
-            if (token.isCancellationRequested) break
+            if (token.isCancellationRequested || quotaExceeded) break
             const { key, sourceValue, locale } = pendingItems[i]
             const preview = sourceValue.length > 20 ? sourceValue.slice(0, 20) + '...' : sourceValue
             const pct = ((i + 1) / total) * 100
@@ -763,8 +764,12 @@ function registerCommands(context: ExtensionContext) {
               } else {
                 skipped++
               }
-            } catch {
+            } catch (err: any) {
               errors++
+              if (ts.isQuotaExceededError(err)) {
+                quotaExceeded = true
+                progress.report({ message: `[${i + 1}/${total}] Translator quota/rate limit reached. Batch stopped.` })
+              }
             }
           }
 
@@ -776,7 +781,14 @@ function registerCommands(context: ExtensionContext) {
 
       await store.refresh()
       treeProvider?.refresh()
-      window.showInformationMessage(t('editor.batch_translate_result', groupPrefix, String(translated), String(errors)))
+      const resultMsg = quotaExceeded
+        ? `${t('editor.batch_translate_result', groupPrefix, String(translated), String(errors))} | Translator quota/rate limit reached.`
+        : t('editor.batch_translate_result', groupPrefix, String(translated), String(errors))
+      if (quotaExceeded) {
+        window.showWarningMessage(resultMsg)
+      } else {
+        window.showInformationMessage(resultMsg)
+      }
     }),
     commands.registerCommand('i18nAllyPro.deleteGroup', async (node?: any) => {
       if (!store || !refactorService || !node?.keypath) return
@@ -945,11 +957,11 @@ function registerCommands(context: ExtensionContext) {
       diffViewPanel.show()
     }),
     commands.registerCommand('i18nAllyPro.showKeyDependencies', async () => {
-      if (!keyDependencyService) {
+      if (!progressDashboard) {
         window.showWarningMessage(t('misc.not_initialized'))
         return
       }
-      await keyDependencyService.showDependencyGraph()
+      await progressDashboard.showDependencies()
     }),
     commands.registerCommand('i18nAllyPro.initLocales', async () => {
       if (!store || !localeInitService) return
@@ -973,10 +985,15 @@ function registerCommands(context: ExtensionContext) {
     commands.registerCommand('i18nAllyPro.completeKeys', async () => {
       if (!store || !localeInitService) return
       const result = await localeInitService.completeMissingKeys()
-      if (result.completed > 0) {
-        window.showInformationMessage(
-          t('misc.complete_keys_result', result.completed, result.translated, result.skipped, result.errors),
-        )
+      if (result.completed > 0 || result.quotaExceeded) {
+        const resultMsg = result.quotaExceeded
+          ? `${t('misc.complete_keys_result', result.completed, result.translated, result.skipped, result.errors)} | Translator quota/rate limit reached.`
+          : t('misc.complete_keys_result', result.completed, result.translated, result.skipped, result.errors)
+        if (result.quotaExceeded) {
+          window.showWarningMessage(resultMsg)
+        } else {
+          window.showInformationMessage(resultMsg)
+        }
         await store.refresh()
         treeProvider?.refresh()
         progressDashboard?.refresh()

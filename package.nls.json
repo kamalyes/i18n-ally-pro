@@ -35,7 +35,7 @@
   "i18nAllyPro.clearTranslationCache.title": "i18n Pro: Clear Translation Cache",
   "i18nAllyPro.openKeyEditor.title": "i18n Pro: Open Key Editor",
   "i18nAllyPro.showDiffReport.title": "i18n Pro: Show Diff Report",
-  "i18nAllyPro.showKeyDependencies.title": "i18n Pro: Show Key Dependencies",
+  "i18nAllyPro.showKeyDependencies.title": "i18n Pro: Scan Dependencies in Dashboard",
   "i18nAllyPro.initLocales.title": "i18n Pro: Initialize Locales from Go",
   "i18nAllyPro.completeKeys.title": "i18n Pro: Complete Missing Keys",
   "i18nAllyPro.tree.name": "Translations",

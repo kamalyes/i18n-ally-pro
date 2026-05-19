@@ -81,33 +81,43 @@ export class TranslatorService {
 
     const cacheKey = `${effectiveEngine}:${from}:${to}:${text}`
     const cached = translationCache.get(cacheKey)
-    if (cached) return cached
+    this.logTranslationRequest(effectiveEngine, from, to, text, Boolean(cached))
+    if (cached) {
+      this.logTranslationResponse(effectiveEngine, from, to, text, cached, true)
+      return cached
+    }
 
     let result: string
 
-    if (effectiveEngine === 'deepl-web') {
-      result = await this.deeplWebAdapter.translate(
-        { text, from, to },
-        { apiKey: '', apiEndpoint: config.apiEndpoint },
-      )
-    } else {
-      const translator = this.translators.get(effectiveEngine)
-      if (!translator) {
-        throw new Error(`Unknown translator engine: ${effectiveEngine}`)
-      }
+    try {
+      if (effectiveEngine === 'deepl-web') {
+        result = await this.deeplWebAdapter.translate(
+          { text, from, to },
+          { apiKey: '', apiEndpoint: config.apiEndpoint },
+        )
+      } else {
+        const translator = this.translators.get(effectiveEngine)
+        if (!translator) {
+          throw new Error(`Unknown translator engine: ${effectiveEngine}`)
+        }
 
-      const translatorConfig: TranslatorConfig = {
-        apiKey: config.apiKey,
-        apiEndpoint: config.apiEndpoint,
-      }
+        const translatorConfig: TranslatorConfig = {
+          apiKey: config.apiKey,
+          apiEndpoint: config.apiEndpoint,
+        }
 
-      result = await translator.translate({ text, from, to }, translatorConfig)
+        result = await translator.translate({ text, from, to }, translatorConfig)
+      }
+    } catch (err: any) {
+      this.logTranslationError(effectiveEngine, from, to, text, err)
+      throw err
     }
 
     if (result) {
       translationCache.set(cacheKey, result)
     }
 
+    this.logTranslationResponse(effectiveEngine, from, to, text, result, false)
     return result
   }
 
@@ -341,9 +351,43 @@ export class TranslatorService {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  private isQuotaExceededError(err: any): boolean {
+  private logTranslationRequest(engine: string, from: string, to: string, text: string, cached: boolean) {
+    console.log('[i18n-ally-pro][translate request]', JSON.stringify({
+      engine,
+      from,
+      to,
+      cached,
+      text,
+    }))
+  }
+
+  private logTranslationResponse(engine: string, from: string, to: string, text: string, result: string, cached: boolean) {
+    console.log('[i18n-ally-pro][translate response]', JSON.stringify({
+      engine,
+      from,
+      to,
+      cached,
+      text,
+      result,
+    }))
+  }
+
+  private logTranslationError(engine: string, from: string, to: string, text: string, err: any) {
+    console.error('[i18n-ally-pro][translate error]', JSON.stringify({
+      engine,
+      from,
+      to,
+      text,
+      error: err?.message || String(err),
+    }))
+  }
+
+  isQuotaExceededError(err: any): boolean {
     const message = err?.message || String(err)
-    return /HTTP\s+456/i.test(message) || /quota exceeded/i.test(message)
+    return /HTTP\s+(429|456)/i.test(message)
+      || /quota exceeded/i.test(message)
+      || /rate limit/i.test(message)
+      || /too many requests/i.test(message)
   }
 
   private formatTranslationError(key: string, locale: string, err: any): string {

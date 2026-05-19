@@ -136,15 +136,28 @@
       },
       {
         "command": "i18nAllyPro.searchKeys",
-        "title": "%i18nAllyPro.searchKeys.title%"
+        "title": "%i18nAllyPro.searchKeys.title%",
+        "icon": "$(search)"
       },
       {
         "command": "i18nAllyPro.clearSearch",
-        "title": "%i18nAllyPro.clearSearch.title%"
+        "title": "%i18nAllyPro.clearSearch.title%",
+        "icon": "$(close)"
       },
       {
         "command": "i18nAllyPro.qualityCheck",
-        "title": "%i18nAllyPro.qualityCheck.title%"
+        "title": "%i18nAllyPro.qualityCheck.title%",
+        "icon": "$(shield-check)"
+      },
+      {
+        "command": "i18nAllyPro.showDashboard",
+        "title": "%i18nAllyPro.showDashboard.title%",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "i18nAllyPro.refresh",
+        "title": "%i18nAllyPro.refresh.title%",
+        "icon": "$(refresh)"
       },
       {
         "command": "i18nAllyPro.undoTranslation",
@@ -287,9 +300,24 @@
           "group": "navigation@1"
         },
         {
-          "command": "i18nAllyPro.refresh",
+          "command": "i18nAllyPro.clearSearch",
           "when": "view == i18nAllyPro.tree",
           "group": "navigation@2"
+        },
+        {
+          "command": "i18nAllyPro.qualityCheck",
+          "when": "view == i18nAllyPro.tree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "i18nAllyPro.showDashboard",
+          "when": "view == i18nAllyPro.tree",
+          "group": "navigation@4"
+        },
+        {
+          "command": "i18nAllyPro.refresh",
+          "when": "view == i18nAllyPro.tree",
+          "group": "navigation@5"
         }
       ]
     },

@@ -24,6 +24,7 @@ export interface CompleteKeysResult {
   translated: number
   skipped: number
   errors: number
+  quotaExceeded?: boolean
 }
 
 export class LocaleInitService {
@@ -234,13 +235,14 @@ export class LocaleInitService {
 
     if (allKeys.length === 0 || locales.length === 0) {
       window.showWarningMessage('No keys or locales found. Please initialize first.')
-      return { completed: 0, translated: 0, skipped: 0, errors: 0 }
+      return { completed: 0, translated: 0, skipped: 0, errors: 0, quotaExceeded: false }
     }
 
     let completed = 0
     let translated = 0
     let skipped = 0
     let errors = 0
+    let quotaExceeded = false
 
     const shouldTranslate = this.canTranslate()
 
@@ -250,12 +252,14 @@ export class LocaleInitService {
         title: 'i18n Pro: Completing missing keys',
         cancellable: true,
       },
-      async (progress) => {
+      async (progress, token) => {
         let current = 0
         const total = allKeys.length * locales.length
 
         for (const key of allKeys) {
+          if (token.isCancellationRequested || quotaExceeded) break
           for (const locale of locales) {
+            if (token.isCancellationRequested || quotaExceeded) break
             current++
             progress.report({
               message: `[${current}/${total}] ${key} → ${locale}`,
@@ -280,9 +284,17 @@ export class LocaleInitService {
                       value = result
                       translated++
                     }
-                  } catch { /* translation failed, keep empty */ }
+                  } catch (err: any) {
+                    errors++
+                    if (this.translatorService.isQuotaExceededError(err)) {
+                      quotaExceeded = true
+                      progress.report({ message: `[${current}/${total}] Translator quota/rate limit reached. Completion stopped.` })
+                    }
+                  }
                 }
               }
+
+              if (quotaExceeded) break
 
               await this.store.setTranslation(locale, key, value)
               completed++
@@ -294,7 +306,7 @@ export class LocaleInitService {
       },
     )
 
-    return { completed, translated, skipped, errors }
+    return { completed, translated, skipped, errors, quotaExceeded }
   }
 
   async scanAllGoKeys(rootPath: string): Promise<Set<string>> {

@@ -35,7 +35,7 @@
   "i18nAllyPro.clearTranslationCache.title": "i18n Pro: 清除翻译缓存",
   "i18nAllyPro.openKeyEditor.title": "i18n Pro: 打开 Key 编辑器",
   "i18nAllyPro.showDiffReport.title": "i18n Pro: 显示差异报告",
-  "i18nAllyPro.showKeyDependencies.title": "i18n Pro: 显示 Key 依赖图",
+  "i18nAllyPro.showKeyDependencies.title": "i18n Pro: 在 Dashboard 扫描 Key 依赖",
   "i18nAllyPro.initLocales.title": "i18n Pro: 从 Go 初始化语言配置",
   "i18nAllyPro.completeKeys.title": "i18n Pro: 一键补全缺失 Key",
   "i18nAllyPro.tree.name": "翻译列表",

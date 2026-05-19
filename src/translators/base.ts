@@ -21,6 +21,7 @@ export abstract class BaseTranslator {
       const parsedUrl = new URL(url)
       const isHttps = parsedUrl.protocol === 'https:'
       const lib = isHttps ? https : http
+      const safeUrl = this.redactUrl(url)
 
       const options = {
         hostname: parsedUrl.hostname,
@@ -33,10 +34,23 @@ export abstract class BaseTranslator {
         },
       }
 
+      console.log('[i18n-ally-pro][http request]', JSON.stringify({
+        method: 'POST',
+        url: safeUrl,
+        headers: this.redactHeaders(options.headers),
+        body: this.truncate(body),
+      }))
+
       const req = lib.request(options, (res) => {
         let data = ''
         res.on('data', (chunk) => { data += chunk })
         res.on('end', () => {
+          console.log('[i18n-ally-pro][http response]', JSON.stringify({
+            url: safeUrl,
+            statusCode: res.statusCode,
+            body: this.truncate(data),
+          }))
+
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve(data)
           }
@@ -50,6 +64,36 @@ export abstract class BaseTranslator {
       req.write(body)
       req.end()
     })
+  }
+
+  private redactUrl(url: string): string {
+    try {
+      const parsed = new URL(url)
+      for (const key of ['key', 'api_key', 'apikey', 'auth_key']) {
+        if (parsed.searchParams.has(key)) {
+          parsed.searchParams.set(key, '***')
+        }
+      }
+      return parsed.toString()
+    } catch {
+      return url
+    }
+  }
+
+  private redactHeaders(headers: Record<string, string | number>): Record<string, string | number> {
+    const safe: Record<string, string | number> = {}
+    for (const [key, value] of Object.entries(headers)) {
+      if (/authorization|subscription|api[-_]?key/i.test(key)) {
+        safe[key] = '***'
+      } else {
+        safe[key] = value
+      }
+    }
+    return safe
+  }
+
+  private truncate(value: string): string {
+    return value.length > 2000 ? `${value.slice(0, 2000)}...` : value
   }
 
   protected toGoogleLocale(locale: string): string {

@@ -1,41 +1,79 @@
-import { window, ViewColumn, commands, env } from 'vscode'
+import { window, ViewColumn, commands, env, ProgressLocation } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
 import type { TranslatorService } from '../services/translator'
+import type { KeyDependencyGraph, KeyDependencyService, KeyReference } from '../services/keyDependency'
+
+interface DependencyDashboardData {
+  graph: KeyDependencyGraph
+  totalKeys: number
+  referencedKeys: string[]
+  unreferencedKeys: string[]
+  codeOnlyKeys: string[]
+  codeOnlyItems: { key: string; count: number; refs: KeyReference[] }[]
+  topReferenced: { key: string; count: number; value: string; refs: KeyReference[] }[]
+  topUnreferenced: { key: string; value: string }[]
+}
 
 export class ProgressDashboard {
   private store: TranslationStore
   private translatorService: TranslatorService | null
+  private dependencyService: KeyDependencyService | null
+  private dependencyData: DependencyDashboardData | null = null
+  private dependencyLoading = false
+  private dependencyError = ''
   private panel: import('vscode').WebviewPanel | null = null
   private onRefresh: (() => void) | null = null
 
-  constructor(store: TranslationStore, translatorService?: TranslatorService, onRefresh?: () => void) {
+  constructor(
+    store: TranslationStore,
+    translatorService?: TranslatorService,
+    dependencyServiceOrRefresh?: KeyDependencyService | (() => void),
+    onRefresh?: () => void,
+  ) {
     this.store = store
     this.translatorService = translatorService || null
-    this.onRefresh = onRefresh || null
+    if (typeof dependencyServiceOrRefresh === 'function') {
+      this.dependencyService = null
+      this.onRefresh = dependencyServiceOrRefresh
+    } else {
+      this.dependencyService = dependencyServiceOrRefresh || null
+      this.onRefresh = onRefresh || null
+    }
   }
 
   show() {
     if (this.panel) {
       this.panel.reveal()
       this.update()
+      this.ensureDependenciesScanned()
       return
     }
 
     this.panel = window.createWebviewPanel(
       'i18nAllyPro.dashboard',
-      '📊 i18n Progress Dashboard',
+      'i18n Progress Dashboard',
       ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: true },
     )
 
     this.panel.onDidDispose(() => { this.panel = null })
-    this.panel.webview.onDidReceiveMessage(async (msg: { type: string; category?: string; key?: string; sourceLocale?: string; targetLocale?: string; overwrite?: boolean; target?: 'codex' | 'copilot' }) => {
+    this.panel.webview.onDidReceiveMessage(async (msg: {
+      type: string
+      category?: string
+      key?: string
+      sourceLocale?: string
+      targetLocale?: string
+      overwrite?: boolean
+      target?: 'codex' | 'copilot'
+    }) => {
       if (msg.type === 'refresh') {
         try {
           await this.store.refresh()
+          this.dependencyData = null
           this.update()
+          this.ensureDependenciesScanned()
           if (this.onRefresh) this.onRefresh()
           window.showInformationMessage(t('dashboard.refreshed'))
         } catch (err: any) {
@@ -77,6 +115,9 @@ export class ProgressDashboard {
       }
       if (msg.type === 'openAIPrompt') {
         await this.openAIPrompt(msg.target || 'codex')
+      }
+      if (msg.type === 'scanDependencies') {
+        await this.scanDependencies(true)
       }
       if (msg.type === 'cloneLocale' && msg.sourceLocale && msg.targetLocale) {
         try {
@@ -120,46 +161,172 @@ export class ProgressDashboard {
     })
 
     this.update()
+    this.ensureDependenciesScanned()
   }
 
   refresh() {
+    this.dependencyData = null
     this.update()
+    this.ensureDependenciesScanned()
+  }
+
+  async showDependencies() {
+    this.show()
+    await this.scanDependencies(true)
+  }
+
+  private ensureDependenciesScanned() {
+    void this.scanDependencies(false)
+  }
+
+  private async scanDependencies(force = false) {
+    if (this.dependencyLoading) return
+    if (!force && this.dependencyData) return
+
+    if (!this.dependencyService) {
+      window.showWarningMessage('i18n dependency scanner is not initialized')
+      this.panel?.webview.postMessage({ type: 'dependencyDone', error: true })
+      return
+    }
+
+    this.dependencyLoading = true
+    this.dependencyError = ''
+    this.update()
+
+    try {
+      const graph = await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: 'i18n Pro: Scanning key dependencies...',
+          cancellable: false,
+        },
+        async () => this.dependencyService!.buildDependencyGraph(),
+      )
+
+      this.dependencyData = this.buildDependencyData(graph)
+      window.showInformationMessage(
+        `Dependency scan complete: ${this.dependencyData.referencedKeys.length} referenced, ${this.dependencyData.unreferencedKeys.length} unreferenced`,
+      )
+    } catch (err: any) {
+      this.dependencyError = err?.message || String(err)
+      window.showErrorMessage(`Dependency scan failed - ${this.dependencyError}`)
+    } finally {
+      this.dependencyLoading = false
+      this.update()
+      this.panel?.webview.postMessage({ type: 'dependencyDone', error: !!this.dependencyError })
+    }
+  }
+
+  private buildDependencyData(graph: KeyDependencyGraph): DependencyDashboardData {
+    const allKeys = this.store.getAllKeys().sort()
+    const allKeySet = new Set(allKeys)
+    const graphKeys = Object.keys(graph).sort()
+    const referencedKeys = graphKeys.filter(key => allKeySet.has(key))
+    const referencedSet = new Set(referencedKeys)
+    const unreferencedKeys = allKeys.filter(key => !referencedSet.has(key))
+    const codeOnlyKeys = graphKeys.filter(key => !allKeySet.has(key))
+
+    const codeOnlyItems = codeOnlyKeys
+      .map(key => ({
+        key,
+        count: graph[key]?.length || 0,
+        refs: graph[key] || [],
+      }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+
+    const topReferenced = referencedKeys
+      .map(key => ({
+        key,
+        count: graph[key]?.length || 0,
+        refs: graph[key] || [],
+        value: this.store.getTranslation(this.store.projectConfig.sourceLanguage, key) || '',
+      }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+      .slice(0, 12)
+
+    const topUnreferenced = unreferencedKeys
+      .slice(0, 30)
+      .map(key => ({
+        key,
+        value: this.store.getTranslation(this.store.projectConfig.sourceLanguage, key) || '',
+      }))
+
+    return {
+      graph,
+      totalKeys: allKeys.length,
+      referencedKeys,
+      unreferencedKeys,
+      codeOnlyKeys,
+      codeOnlyItems,
+      topReferenced,
+      topUnreferenced,
+    }
   }
 
   private async openAIPrompt(target: 'codex' | 'copilot') {
     const prompt = this.buildDashboardPrompt(target)
     await env.clipboard.writeText(prompt)
 
-    const commandsToTry = target === 'codex'
-      ? ['chatgpt.newCodexPanel', 'workbench.action.chat.open']
-      : ['workbench.action.chat.open', 'chatgpt.newCodexPanel']
-
-    for (const command of commandsToTry) {
-      if (await this.tryOpenAICommand(command, prompt)) {
-        window.showInformationMessage(`i18n AI prompt copied and opened ${target === 'codex' ? 'Codex' : 'Copilot/Chat'}`)
-        return
+    if (target === 'codex') {
+      const opened = await this.openCodexTarget()
+      if (opened) {
+        window.showInformationMessage('i18n AI prompt copied. Codex is open; paste it into the composer to run.')
+      } else {
+        window.showWarningMessage('i18n AI prompt copied, but Codex extension command was not found.')
       }
+      return
     }
 
-    window.showInformationMessage('i18n AI prompt copied to clipboard')
+    if (await this.openCopilotTarget(prompt)) {
+      window.showInformationMessage('i18n AI prompt copied and opened Copilot/Chat')
+    } else {
+      window.showInformationMessage('i18n AI prompt copied to clipboard')
+    }
   }
 
-  private async tryOpenAICommand(command: string, prompt: string): Promise<boolean> {
+  private async openCodexTarget(): Promise<boolean> {
+    const available = new Set(await commands.getCommands(true))
+    let opened = false
+
+    if (available.has('chatgpt.openSidebar')) {
+      await commands.executeCommand('chatgpt.openSidebar')
+      opened = true
+    }
+
+    if (available.has('chatgpt.newChat')) {
+      await commands.executeCommand('chatgpt.newChat')
+      return true
+    }
+
+    if (available.has('chatgpt.newCodexPanel')) {
+      await commands.executeCommand('chatgpt.newCodexPanel')
+      return true
+    }
+
+    return opened
+  }
+
+  private async openCopilotTarget(prompt: string): Promise<boolean> {
+    const attempts: Array<() => Thenable<unknown>> = [
+      () => commands.executeCommand('workbench.action.chat.open', { query: prompt }),
+      () => commands.executeCommand('workbench.action.chat.open', prompt),
+      () => commands.executeCommand('github.copilot.openChat'),
+      () => commands.executeCommand('workbench.action.chat.open'),
+    ]
+
+    for (const attempt of attempts) {
+      if (await this.tryCommand(attempt)) return true
+    }
+
+    return false
+  }
+
+  private async tryCommand(run: () => Thenable<unknown>): Promise<boolean> {
     try {
-      await commands.executeCommand(command, prompt)
+      await run()
       return true
     } catch {
-      try {
-        await commands.executeCommand(command, { query: prompt })
-        return true
-      } catch {
-        try {
-          await commands.executeCommand(command)
-          return true
-        } catch {
-          return false
-        }
-      }
+      return false
     }
   }
 
@@ -184,6 +351,7 @@ export class ProgressDashboard {
 
     const fileSummaries = this.store.getTranslationFiles()
       .map(file => `- ${file.locale}: ${file.filepath} (${file.parser})`)
+    const dependencySummary = this.buildDependencyPromptBlock()
 
     const extraCount = diagnostics.length > missingRows.length
       ? `\n\nThere are ${diagnostics.length - missingRows.length} additional missing/empty entries not listed here. Inspect the locale files before editing.`
@@ -208,6 +376,9 @@ ${fileSummaries.join('\n') || '- No locale files detected'}
 Dashboard coverage:
 ${localeSummaries.join('\n') || '- No locale data'}
 
+Key dependency scan:
+${dependencySummary}
+
 Missing or empty translations:
 ${missingRows.join('\n') || '- None'}
 ${extraCount}
@@ -218,8 +389,41 @@ Instructions:
 - Use the source locale text as the translation source.
 - Keep existing non-empty translations unless they are clearly broken.
 - Search the codebase and nearby locale files for existing wording before inventing new translations.
-- After editing, run the smallest relevant validation command for this extension, such as npm run lint.
+- Use dependency scan data when available, but inspect code before deleting or renaming any key.
 - Report the files changed and any entries that could not be translated safely.`
+  }
+
+  private buildDependencyPromptBlock(): string {
+    const data = this.dependencyData
+    if (!data) {
+      return '- Not scanned in this dashboard yet. Run the dependency scan before cleanup work if key usage matters.'
+    }
+
+    const unreferenced = data.topUnreferenced
+      .slice(0, 20)
+      .map(item => `- unreferenced: ${item.key} | source: ${item.value || '(empty)'}`)
+    const referenced = data.topReferenced
+      .slice(0, 10)
+      .map(item => `- referenced: ${item.key} | refs: ${item.count} | from: ${this.formatPromptReferences(item.refs)} | source: ${item.value || '(empty)'}`)
+    const codeOnly = data.codeOnlyItems
+      .slice(0, 20)
+      .map(item => `- code-only: ${item.key} | refs: ${item.count} | from: ${this.formatPromptReferences(item.refs)}`)
+
+    return [
+      `- Total locale keys: ${data.totalKeys}`,
+      `- Referenced locale keys: ${data.referencedKeys.length}`,
+      `- Unreferenced locale keys: ${data.unreferencedKeys.length}`,
+      `- Code references without locale keys: ${data.codeOnlyKeys.length}`,
+      '',
+      'Top referenced keys:',
+      referenced.join('\n') || '- None',
+      '',
+      'Top unreferenced keys:',
+      unreferenced.join('\n') || '- None',
+      '',
+      'Code-only keys:',
+      codeOnly.join('\n') || '- None',
+    ].join('\n')
   }
 
   private update() {
@@ -256,9 +460,15 @@ Instructions:
     })
 
     const donutSvg = this.generateDonutSvg(filledCells, emptyCells, missingCells, overallPct)
+    const dependencyStat = this.renderDependencyStat(allKeys.length)
+    const dependencyButtonLabel = this.dependencyLoading
+      ? 'Scanning...'
+      : 'Rescan'
+    const dependencySubtitle = this.renderDependencySubtitle()
+    const codeOnlyReferences = this.renderCodeOnlyReferences()
 
     const localeBars = localeData.map(d => {
-      const barColor = d.pct === 100 ? '#4CAF50' : d.pct > 70 ? '#FFC107' : d.pct > 40 ? '#FF9800' : '#f48771'
+      const barColor = d.pct === 100 ? 'var(--color-success)' : d.pct > 70 ? 'var(--color-warning)' : d.pct > 40 ? 'var(--color-orange)' : 'var(--color-danger)'
       const name = getLocaleName(d.locale)
       const flagCss = getLocaleFlagCssClass(d.locale)
       return `
@@ -275,14 +485,16 @@ Instructions:
             <span class="pct" style="color:${barColor}">${d.pct}%</span>
             <span class="detail">${d.filled}/${d.total}</span>
           </div>
-          <button class="btn-clone" onclick="showCloneDialog('${d.locale}')" title="Clone this locale to another">📋</button>
+          <button class="btn-icon" onclick="showCloneDialog('${d.locale}')" title="Clone this locale to another">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 2a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5h-2v2a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5h2zm2.5 1h-4v5h4zm4.5 1h-4v1h3.5v4h-3.5v1h4z"/></svg>
+          </button>
         </div>`
     }).join('')
 
     const categoryData = this.analyzeByCategory(allKeys)
 
     const categoryBars = categoryData.map(cat => {
-      const barColor = cat.pct === 100 ? '#4CAF50' : cat.pct > 70 ? '#FFC107' : '#f48771'
+      const barColor = cat.pct === 100 ? 'var(--color-success)' : cat.pct > 70 ? 'var(--color-warning)' : 'var(--color-danger)'
       return `
         <div class="category-row clickable" onclick="openCategory('${this.escJs(cat.category)}')" title="${this.escAttr(cat.category)}">
           <div class="category-label" title="${this.escAttr(cat.category)}">${this.escHtml(cat.category)}</div>
@@ -299,9 +511,15 @@ Instructions:
     const missingKeys = diagnostics.filter(d => d.type === 'missing' || d.type === 'empty')
     const topMissing = missingKeys.slice(0, 20).map(d => {
       const flagCss = d.locale ? getLocaleFlagCssClass(d.locale) : ''
+      const dependencyBadge = this.renderKeyDependencyBadge(d.key)
+      const dependencySources = this.renderKeyDependencySources(d.key)
       return `<div class="missing-item clickable" onclick="openKey('${this.escJs(d.key)}')">
-        <span class="missing-locale">${flagCss ? `<span class="flag-icon-sm"><span class="fi ${flagCss}"></span></span>` : ''} ${d.locale || ''}</span>
-        <span class="missing-key">${this.escHtml(d.key)}</span>
+        <div class="missing-main">
+          <span class="missing-locale">${flagCss ? `<span class="flag-icon-sm"><span class="fi ${flagCss}"></span></span>` : ''} ${d.locale || ''}</span>
+          <span class="missing-key">${this.escHtml(d.key)}</span>
+          ${dependencyBadge}
+        </div>
+        ${dependencySources}
       </div>`
     }).join('')
 
@@ -314,96 +532,367 @@ Instructions:
   <title>i18n Progress Dashboard</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
+    :root {
+      --bg-base: #1e1e1e;
+      --bg-card: #252526;
+      --bg-elevated: #2d2d2d;
+      --bg-hover: #333;
+      --border: #333;
+      --border-focus: #555;
+      --text-primary: #d4d4d4;
+      --text-secondary: #888;
+      --text-muted: #666;
+      --color-success: #4CAF50;
+      --color-warning: #FFC107;
+      --color-orange: #FF9800;
+      --color-danger: #f48771;
+      --color-info: #2196F3;
+      --color-accent: #9CDCFE;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 12px;
+      --space-lg: 16px;
+      --space-xl: 20px;
+      --space-2xl: 24px;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      padding: var(--space-2xl);
+    }
+
     .dashboard { max-width: 1200px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-    .header h1 { color: #4CAF50; font-size: 22px; }
-    .header .subtitle { color: #888; font-size: 13px; }
-    .header-actions { display: flex; gap: 8px; }
-    .btn-refresh { padding: 6px 14px; background: #2d2d2d; border: 1px solid #4CAF50; border-radius: 4px;
-      color: #4CAF50; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-    .btn-refresh:hover { background: #4CAF50; color: #fff; }
-    .btn-action { padding: 6px 14px; background: #2d2d2d; border: 1px solid #2196F3; border-radius: 4px;
-      color: #2196F3; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-    .btn-action:hover { background: #2196F3; color: #fff; }
-    .grid { display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
-    .card { background: #252526; border: 1px solid #333; border-radius: 8px; padding: 20px; }
-    .card-title { font-size: 14px; color: #888; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: var(--space-2xl);
+      gap: var(--space-lg);
+    }
+    .header-left { flex: 1; min-width: 0; }
+    .header h1 { color: var(--color-success); font-size: 20px; font-weight: 600; margin-bottom: var(--space-xs); }
+    .header .subtitle { color: var(--text-secondary); font-size: 12px; }
+    .header .dependency-status { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+    .header-actions { display: flex; gap: var(--space-sm); flex-wrap: wrap; align-items: center; }
+    .btn-group { display: flex; gap: 2px; }
+
+    .btn {
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
+    }
+    .btn:hover { background: var(--bg-hover); border-color: var(--border-focus); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { border-color: var(--color-success); color: var(--color-success); }
+    .btn-primary:hover { background: var(--color-success); color: #fff; }
+    .btn-info { border-color: var(--color-info); color: var(--color-info); }
+    .btn-info:hover { background: var(--color-info); color: #fff; }
+    .btn-icon {
+      padding: 3px 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-icon:hover { color: var(--color-info); border-color: var(--color-info); background: rgba(33,150,243,0.1); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-xl);
+    }
+    .card-title {
+      font-size: 11px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-bottom: var(--space-lg);
+      font-weight: 600;
+    }
+
+    /* ── Top Grid: Overview + Locale ── */
+    .grid-top {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: var(--space-xl);
+    }
+
+    /* ── Donut ── */
     .donut-wrap { display: flex; flex-direction: column; align-items: center; }
-    .donut-svg { width: 200px; height: 200px; }
-    .legend { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; justify-content: center; }
-    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .locale-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-    .locale-label { width: 140px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .flag-icon-wrap { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 16px; border-radius: 2px; overflow: hidden; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
-    .flag-icon-wrap .fi { width: 24px; height: 16px; display: block; background-size: contain; background-position: center; background-repeat: no-repeat; }
-    .flag-icon-sm { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 12px; border-radius: 1px; overflow: hidden; vertical-align: middle; border: 1px solid rgba(255,255,255,0.1); }
-    .flag-icon-sm .fi { width: 18px; height: 12px; display: block; background-size: contain; background-position: center; background-repeat: no-repeat; }
-    .locale-name { font-size: 12px; color: #ccc; }
-    .locale-code { font-size: 10px; color: #666; }
-    .locale-bar-wrap { flex: 1; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
-    .locale-bar { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
-    .locale-stats { width: 80px; text-align: right; flex-shrink: 0; }
-    .locale-stats .pct { font-size: 14px; font-weight: bold; }
-    .locale-stats .detail { font-size: 11px; color: #666; margin-left: 4px; }
-    .btn-clone { padding: 2px 6px; background: transparent; border: 1px solid #555; border-radius: 3px; cursor: pointer; font-size: 12px; opacity: 0.5; transition: all 0.15s; flex-shrink: 0; }
-    .btn-clone:hover { opacity: 1; border-color: #2196F3; background: rgba(33,150,243,0.1); }
-    ${getCloneDialogCss()}
-    .category-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding: 4px 6px; border-radius: 4px; }
+    .donut-svg { width: 180px; height: 180px; }
+    .legend { display: flex; gap: var(--space-lg); margin-top: var(--space-md); flex-wrap: wrap; justify-content: center; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* ── Summary Stats ── */
+    .summary-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-sm);
+      margin-top: var(--space-lg);
+    }
+    .summary-stat {
+      text-align: center;
+      padding: var(--space-sm) var(--space-xs);
+      background: var(--bg-elevated);
+      border-radius: var(--radius-sm);
+    }
+    .summary-stat .num { font-size: 20px; font-weight: 700; line-height: 1.3; }
+    .summary-stat .label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── Locale Rows ── */
+    .locale-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      margin-bottom: var(--space-sm);
+    }
+    .locale-row:last-child { margin-bottom: 0; }
+    .locale-label {
+      width: 130px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .flag-icon-wrap {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 15px;
+      border-radius: 2px;
+      overflow: hidden;
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .flag-icon-wrap .fi {
+      width: 22px;
+      height: 15px;
+      display: block;
+      background-size: contain;
+      background-position: center;
+      background-repeat: no-repeat;
+    }
+    .flag-icon-sm {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 11px;
+      border-radius: 1px;
+      overflow: hidden;
+      vertical-align: middle;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .flag-icon-sm .fi {
+      width: 16px;
+      height: 11px;
+      display: block;
+      background-size: contain;
+      background-position: center;
+      background-repeat: no-repeat;
+    }
+    .locale-name { font-size: 12px; color: var(--text-primary); }
+    .locale-code { font-size: 10px; color: var(--text-muted); }
+    .locale-bar-wrap { flex: 1; height: 6px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+    .locale-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; min-width: 2px; }
+    .locale-stats { width: 72px; text-align: right; flex-shrink: 0; }
+    .locale-stats .pct { font-size: 13px; font-weight: 700; }
+    .locale-stats .detail { font-size: 10px; color: var(--text-muted); margin-left: 4px; }
+
+    /* ── Bottom Grid: Category + Missing ── */
+    .grid-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-xl);
+      margin-top: var(--space-xl);
+    }
+
+    /* ── Category Rows ── */
+    .category-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+      margin-bottom: 6px;
+      padding: 3px 6px;
+      border-radius: var(--radius-sm);
+    }
     .category-row.clickable { cursor: pointer; transition: background 0.15s; }
-    .category-row.clickable:hover { background: #2d2d2d; }
-    .category-label { width: 140px; font-size: 12px; color: #9CDCFE; font-family: monospace; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .category-bar-wrap { flex: 1; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
-    .category-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
-    .category-stats { width: 80px; text-align: right; flex-shrink: 0; }
-    .category-stats .pct { font-size: 13px; font-weight: bold; }
-    .category-stats .detail { font-size: 11px; color: #666; margin-left: 4px; }
-    .missing-item { display: flex; gap: 8px; padding: 4px 6px; font-size: 12px; border-bottom: 1px solid #2a2a2a; }
+    .category-row.clickable:hover { background: var(--bg-elevated); }
+    .category-label {
+      width: 140px;
+      font-size: 12px;
+      color: var(--color-accent);
+      font-family: monospace;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .category-bar-wrap { flex: 1; height: 5px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+    .category-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; min-width: 2px; }
+    .category-stats { width: 72px; text-align: right; flex-shrink: 0; }
+    .category-stats .pct { font-size: 12px; font-weight: 700; }
+    .category-stats .detail { font-size: 10px; color: var(--text-muted); margin-left: 4px; }
+
+    /* ── Missing Items ── */
+    .missing-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 5px 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .missing-item:last-child { border-bottom: 0; }
     .missing-item.clickable { cursor: pointer; transition: background 0.15s; }
-    .missing-item.clickable:hover { background: #2d2d2d; }
-    .missing-locale { color: #888; min-width: 40px; display: inline-flex; align-items: center; gap: 4px; }
-    .missing-key { color: #f48771; font-family: monospace; }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
-    .summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-    .summary-stat { text-align: center; padding: 8px; background: #2d2d2d; border-radius: 6px; }
-    .summary-stat .num { font-size: 24px; font-weight: bold; }
-    .summary-stat .label { font-size: 11px; color: #888; margin-top: 4px; }
+    .missing-item.clickable:hover { background: var(--bg-elevated); }
+    .missing-main { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; }
+    .missing-locale { color: var(--text-muted); min-width: 36px; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+    .missing-key {
+      color: var(--color-danger);
+      font-family: monospace;
+      font-size: 12px;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Dependency Chips ── */
+    .dep-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 10px;
+      line-height: 16px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .dep-chip.ok { color: var(--color-success); background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.25); }
+    .dep-chip.warn { color: var(--color-warning); background: rgba(255,193,7,0.10); border: 1px solid rgba(255,193,7,0.22); }
+    .dep-chip.danger { color: var(--color-danger); background: rgba(244,135,113,0.10); border: 1px solid rgba(244,135,113,0.22); }
+    .dependency-sources { display: flex; align-items: center; gap: 4px; padding-left: 48px; min-width: 0; flex-wrap: wrap; }
+    .ref-chip {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: monospace;
+      font-size: 10px;
+      color: var(--color-accent);
+      background: rgba(156,220,254,0.06);
+      border: 1px solid rgba(156,220,254,0.15);
+      border-radius: 10px;
+      padding: 1px 7px;
+    }
+    .ref-more { font-size: 10px; color: var(--text-muted); }
+
+    /* ── Code Only Callout ── */
+    .dependency-callout { margin-top: var(--space-lg); padding-top: var(--space-lg); border-top: 1px solid var(--border); }
+    .dependency-callout-title {
+      color: var(--color-danger);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: var(--space-sm);
+      font-weight: 600;
+    }
+    .code-only-row { display: flex; flex-direction: column; gap: 3px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .code-only-row:last-child { border-bottom: 0; }
+    .code-only-main { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; }
+    .code-only-key {
+      color: var(--color-danger);
+      font-family: monospace;
+      font-size: 12px;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .code-only-row .dependency-sources { padding-left: 0; }
+
+    /* ── Empty State ── */
+    .empty-state { color: var(--color-success); font-size: 13px; padding: var(--space-md) 0; }
+
+    /* ── Clone Dialog ── */
+    ${getCloneDialogCss()}
   </style>
 </head>
 <body>
   <div class="dashboard">
     <div class="header">
-      <div>
-        <h1>📊 i18n Progress Dashboard</h1>
-        <div class="subtitle">${allKeys.length} keys × ${locales.length} locales = ${totalCells} translations</div>
+      <div class="header-left">
+        <h1>i18n Progress Dashboard</h1>
+        <div class="subtitle">${allKeys.length} keys &times; ${locales.length} locales = ${totalCells} translations</div>
+        <div class="dependency-status">${dependencySubtitle}</div>
       </div>
       <div class="header-actions">
-        <button class="btn-action btn-auto-translate" onclick="autoTranslate()" title="Auto translate all missing keys">🤖 Auto Translate</button>
-        <button class="btn-action btn-ai-prompt" onclick="openAIPrompt('codex')" title="Send current dashboard prompt to Codex">Codex</button>
-        <button class="btn-action btn-ai-prompt" onclick="openAIPrompt('copilot')" title="Send current dashboard prompt to Copilot Chat">Copilot</button>
-        <button class="btn-action btn-format" onclick="formatAll()" title="Format all locale files as nested keys">Format</button>
-        <button class="btn-refresh" onclick="refresh()">🔄 Refresh</button>
+        <button class="btn btn-primary" onclick="refresh()">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 1 1 .908-.418A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966a.25.25 0 0 1 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></svg>
+          Refresh
+        </button>
+        <div class="btn-group">
+          <button class="btn btn-info" onclick="autoTranslate()" title="Auto translate all missing keys">Auto Translate</button>
+          <button class="btn btn-info" onclick="formatAll()" title="Format all locale files">Format</button>
+        </div>
+        <div class="btn-group">
+          <button class="btn" onclick="openAIPrompt('codex')" title="Send dashboard prompt to Codex">Codex</button>
+          <button class="btn" onclick="openAIPrompt('copilot')" title="Send dashboard prompt to Copilot Chat">Copilot</button>
+        </div>
+        <button class="btn" onclick="scanDependencies()" title="Rescan code references">${dependencyButtonLabel}</button>
       </div>
     </div>
 
-    <div class="grid">
+    <div class="grid-top">
       <div class="card">
         <div class="card-title">Overall Progress</div>
         <div class="donut-wrap">
           <div class="donut-svg">${donutSvg}</div>
           <div class="legend">
-            <div class="legend-item"><div class="legend-dot" style="background:#4CAF50"></div>Filled (${filledCells})</div>
-            <div class="legend-item"><div class="legend-dot" style="background:#FFC107"></div>Empty (${emptyCells})</div>
-            <div class="legend-item"><div class="legend-dot" style="background:#f48771"></div>Missing (${missingCells})</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--color-success)"></div>Filled (${filledCells})</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--color-warning)"></div>Empty (${emptyCells})</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--color-danger)"></div>Missing (${missingCells})</div>
           </div>
         </div>
-        <div class="summary-stats" style="margin-top:20px">
-          <div class="summary-stat"><div class="num" style="color:#4CAF50">${allKeys.length}</div><div class="label">Total Keys</div></div>
-          <div class="summary-stat"><div class="num" style="color:#4CAF50">${locales.length}</div><div class="label">Locales</div></div>
-          <div class="summary-stat"><div class="num" style="color:${overallPct === 100 ? '#4CAF50' : '#FFC107'}">${overallPct}%</div><div class="label">Complete</div></div>
+        <div class="summary-stats">
+          <div class="summary-stat"><div class="num" style="color:var(--color-success)">${allKeys.length}</div><div class="label">Keys</div></div>
+          <div class="summary-stat"><div class="num" style="color:var(--color-info)">${locales.length}</div><div class="label">Locales</div></div>
+          <div class="summary-stat"><div class="num" style="color:${overallPct === 100 ? 'var(--color-success)' : 'var(--color-warning)'}">${overallPct}%</div><div class="label">Complete</div></div>
+          ${dependencyStat}
         </div>
+        ${codeOnlyReferences}
       </div>
 
       <div class="card">
@@ -412,18 +901,20 @@ Instructions:
       </div>
     </div>
 
-    <div class="two-col">
+    <div class="grid-bottom">
       <div class="card">
         <div class="card-title">Category Progress</div>
         ${categoryBars}
       </div>
       <div class="card">
-        <div class="card-title">Top Missing Translations (${missingKeys.length > 20 ? '20 of ' + missingKeys.length : missingKeys.length})</div>
-        ${topMissing || '<div style="color:#4CAF50;font-size:13px">🎉 All translations are complete!</div>'}
+        <div class="card-title">Missing Translations${missingKeys.length > 20 ? ` (20 of ${missingKeys.length})` : missingKeys.length > 0 ? ` (${missingKeys.length})` : ''}</div>
+        ${topMissing || '<div class="empty-state">All translations are complete!</div>'}
       </div>
     </div>
   </div>
+
   ${getCloneDialogHtml()}
+
   <script>
     const I18N = ${JSON.stringify({
       refreshing: t('dashboard.refreshed'),
@@ -443,7 +934,7 @@ Instructions:
       if (!toast) {
         toast = document.createElement('div');
         toast.id = 'toast';
-        toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:6px;font-size:13px;z-index:9999;transition:opacity 0.3s;pointer-events:none;color:#fff;';
+        toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:6px 16px;border-radius:6px;font-size:12px;z-index:9999;transition:opacity 0.3s;pointer-events:none;color:#fff;';
         document.body.appendChild(toast);
       }
       toast.textContent = msg;
@@ -453,33 +944,34 @@ Instructions:
     }
 
     function setBtnLoading(btn, loading) {
+      if (!btn) return;
       if (loading) {
-        btn.dataset.origText = btn.textContent;
-        btn.textContent = '⏳ ' + btn.dataset.origText;
+        btn.dataset.origHtml = btn.innerHTML;
         btn.disabled = true;
-        btn.style.opacity = '0.6';
+        btn.style.opacity = '0.5';
       } else {
-        btn.textContent = btn.dataset.origText || btn.textContent;
+        btn.innerHTML = btn.dataset.origHtml || btn.innerHTML;
         btn.disabled = false;
-        btn.style.opacity = '1';
+        btn.style.opacity = '';
       }
     }
 
     function refresh() {
-      const btn = document.querySelector('.btn-refresh');
+      const btn = document.querySelector('.btn-primary');
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'refresh' });
       setTimeout(() => { setBtnLoading(btn, false); showToast(I18N.refreshing); }, 1500);
     }
     function autoTranslate() {
-      const btn = document.querySelector('.btn-auto-translate');
+      const btn = document.querySelector('.btn-info');
       if (btn && btn.disabled) return;
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'autoTranslate' });
       showToast(I18N.autoTranslating);
     }
     function formatAll() {
-      const btn = document.querySelector('.btn-format');
+      const btns = document.querySelectorAll('.btn-info');
+      const btn = btns[1];
       if (btn && btn.disabled) return;
       setBtnLoading(btn, true);
       vscode.postMessage({ type: 'formatAll' });
@@ -488,36 +980,139 @@ Instructions:
     function openAIPrompt(target) {
       vscode.postMessage({ type: 'openAIPrompt', target });
     }
+    function scanDependencies() {
+      const btn = document.querySelector('.header-actions .btn:last-child');
+      if (btn && btn.disabled) return;
+      setBtnLoading(btn, true);
+      vscode.postMessage({ type: 'scanDependencies' });
+      showToast('Scanning key dependencies...');
+    }
     window.addEventListener('message', event => {
       const msg = event.data;
       if (msg.type === 'translateDone') {
-        const btn = document.querySelector('.btn-auto-translate');
+        const btn = document.querySelector('.btn-info');
         setBtnLoading(btn, false);
-        showToast(msg.error ? '❌ Translate failed' : '✅ Translate complete');
+        showToast(msg.error ? 'Translate failed' : 'Translate complete', msg.error ? 'error' : undefined);
       }
       if (msg.type === 'formatDone') {
-        const btn = document.querySelector('.btn-format');
+        const btns = document.querySelectorAll('.btn-info');
+        const btn = btns[1];
         setBtnLoading(btn, false);
         const detail = msg.error
           ? I18N.formatFailed
           : I18N.formatComplete + ': ' + (msg.formatted || 0) + ' formatted, ' + (msg.unchanged || 0) + ' unchanged';
         showToast(detail, msg.error || msg.errors ? 'warn' : undefined);
       }
+      if (msg.type === 'dependencyDone') {
+        const btn = document.querySelector('.header-actions .btn:last-child');
+        setBtnLoading(btn, false);
+        showToast(msg.error ? 'Dependency scan failed' : 'Dependency scan complete', msg.error ? 'error' : undefined);
+      }
+      if (msg.type === 'cloneDone') {
+        showToast(msg.error ? 'Clone failed' : 'Cloned ' + (msg.cloned || 0) + ' keys', msg.error ? 'error' : undefined);
+      }
     });
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
     function openKey(key) { vscode.postMessage({ type: 'openKey', key: key }); }
 
     ${getCloneDialogJs(cloneLocaleData, locales, sourceLocale)}
-
-    window.addEventListener('message', event => {
-      const msg = event.data;
-      if (msg.type === 'cloneDone') {
-        showToast(msg.error ? '❌ Clone failed' : '✅ Cloned ' + (msg.cloned || 0) + ' keys');
-      }
-    });
   </script>
 </body>
 </html>`
+  }
+
+  private renderDependencySubtitle(): string {
+    if (this.dependencyLoading) return 'Dependencies: scanning code references...'
+    if (this.dependencyError) return `Dependencies: scan failed - ${this.escHtml(this.dependencyError)}`
+    if (!this.dependencyData) return 'Dependencies: not scanned'
+
+    const data = this.dependencyData
+    return `Dependencies: ${data.referencedKeys.length}/${data.totalKeys} locale keys referenced, ${data.codeOnlyKeys.length} code refs missing locale`
+  }
+
+  private renderDependencyStat(totalKeys: number): string {
+    if (this.dependencyLoading) {
+      return '<div class="summary-stat"><div class="num" style="color:#FFC107">...</div><div class="label">Dependencies</div></div>'
+    }
+
+    if (!this.dependencyData) {
+      return '<div class="summary-stat"><div class="num" style="color:#888">-</div><div class="label">Dependencies</div></div>'
+    }
+
+    const usedPct = totalKeys > 0 ? Math.round(this.dependencyData.referencedKeys.length / totalKeys * 100) : 100
+    const color = this.dependencyData.unreferencedKeys.length === 0 ? '#4CAF50' : '#FFC107'
+    return `<div class="summary-stat"><div class="num" style="color:${color}">${usedPct}%</div><div class="label">Referenced</div></div>`
+  }
+
+  private renderKeyDependencyBadge(key: string): string {
+    if (!this.dependencyData) return ''
+    const refCount = this.dependencyData.graph[key]?.length || 0
+    const badgeClass = refCount > 0 ? 'ok' : 'danger'
+    return `<span class="dep-chip ${badgeClass}">${refCount} refs</span>`
+  }
+
+  private renderCodeOnlyReferences(): string {
+    if (!this.dependencyData || this.dependencyData.codeOnlyItems.length === 0) return ''
+
+    const rows = this.dependencyData.codeOnlyItems
+      .slice(0, 8)
+      .map(item => `<div class="code-only-row">
+        <div class="code-only-main">
+          <span class="code-only-key" title="${this.escAttr(item.key)}">${this.escHtml(item.key)}</span>
+          <span class="dep-chip danger">${item.count} refs</span>
+        </div>
+        ${this.renderReferenceChips(item.refs, 3)}
+      </div>`)
+
+    const rest = this.dependencyData.codeOnlyItems.length - rows.length
+    const restRow = rest > 0 ? `<div class="ref-more">+${rest} more keys</div>` : ''
+
+    return `<div class="dependency-callout">
+      <div class="dependency-callout-title">Code references missing from locale files</div>
+      ${rows.join('')}
+      ${restRow}
+    </div>`
+  }
+
+  private renderKeyDependencySources(key: string): string {
+    if (!this.dependencyData) return ''
+    const refs = this.dependencyData.graph[key] || []
+    if (refs.length === 0) return ''
+
+    return this.renderReferenceChips(refs, 3)
+  }
+
+  private renderReferenceChips(refs: KeyReference[], maxCount: number): string {
+    const chips = refs.slice(0, maxCount).map(ref => {
+      const label = `${this.relativePath(ref.filepath)}:${ref.line}`
+      const title = `${this.relativePath(ref.filepath)}:${ref.line}:${ref.column}`
+      return `<span class="ref-chip" title="${this.escAttr(title)}">${this.escHtml(label)}</span>`
+    })
+
+    const rest = refs.length - chips.length
+    const restChip = rest > 0 ? `<span class="ref-more">+${rest} more</span>` : ''
+    return `<div class="dependency-sources">${chips.join('')}${restChip}</div>`
+  }
+
+  private formatPromptReferences(refs: KeyReference[]): string {
+    const samples = refs
+      .slice(0, 3)
+      .map(ref => `${this.relativePath(ref.filepath)}:${ref.line}`)
+
+    if (refs.length > samples.length) {
+      samples.push(`+${refs.length - samples.length} more`)
+    }
+
+    return samples.join(', ') || '(none)'
+  }
+
+  private relativePath(filepath: string): string {
+    const normalizedRoot = this.store.projectConfig.rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
+    const normalizedFile = filepath.replace(/\\/g, '/')
+    if (normalizedRoot && normalizedFile.startsWith(`${normalizedRoot}/`)) {
+      return normalizedFile.slice(normalizedRoot.length + 1)
+    }
+    return normalizedFile
   }
 
   private generateDonutSvg(filled: number, empty: number, missing: number, pct: number): string {
@@ -553,7 +1148,12 @@ Instructions:
     </svg>`
   }
 
-  private analyzeByCategory(allKeys: string[]): { category: string; total: number; filled: number; pct: number }[] {
+  private analyzeByCategory(allKeys: string[]): {
+    category: string
+    total: number
+    filled: number
+    pct: number
+  }[] {
     const categories = new Map<string, { total: number; filled: number }>()
 
     for (const key of allKeys) {
