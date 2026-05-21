@@ -238,6 +238,13 @@
     "unused_found": "Found {0} unused keys. See output panel for details.",
     "updated": "Updated \"{0}\" in {1}"
   },
+  "platform": {
+    "tenant": {
+      "statusDisabled": "prohibit the use of sth.",
+      "statusFrozen": "",
+      "statusNormal": "normalcy"
+    }
+  },
   "translator": {
     "cancel": "Cancel",
     "continue": "Continue",

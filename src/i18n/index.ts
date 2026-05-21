@@ -20,7 +20,7 @@ class I18n {
 
   private static LOCALE_TO_COUNTRY: Record<string, string> = {
     'ar': 'sa', 'bg': 'bg', 'bm': 'my', 'bn': 'bd', 'cs': 'cz',
-    'da': 'dk', 'de': 'de', 'el': 'gr', 'en': 'us', 'es': 'es',
+    'da': 'dk', 'de': 'de', 'el': 'gr', 'en': 'us', 'en-US': 'us', 'es': 'es',
     'fi': 'fi', 'fr': 'fr', 'he': 'il', 'hi': 'in', 'hu': 'hu',
     'id': 'id', 'it': 'it', 'ja': 'jp', 'kh': 'kh', 'ko': 'kr',
     'lo': 'la', 'ms': 'my', 'my': 'mm', 'nb-NO': 'no', 'nl': 'nl',

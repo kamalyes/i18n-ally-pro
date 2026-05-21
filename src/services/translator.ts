@@ -261,12 +261,11 @@ export class TranslatorService {
   }
 
   async translateSingleKey(key: string, locale: string): Promise<string | null> {
-    const config = this.getConfig()
-    const sourceValue = this.store.getTranslation(config.sourceLanguage, key)
-    if (!sourceValue) return null
+    const source = this.store.resolveSourceTranslation(key, [locale])
+    if (!source) return null
 
     try {
-      return await this.translateText(sourceValue, config.sourceLanguage, locale)
+      return await this.translateText(source.value, source.locale, locale)
     }
     catch (err: any) {
       window.showErrorMessage(`Translation failed: ${this.formatTranslationError(key, locale, err)}`)
