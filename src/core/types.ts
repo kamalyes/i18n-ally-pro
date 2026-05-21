@@ -37,6 +37,13 @@ export interface TranslationMap {
   }
 }
 
+/** 解析后的翻译源：locale / value 可能来自别名语言或存储中的完整 key。 */
+export interface ResolvedSourceTranslation {
+  locale: string
+  value: string
+  resolvedKey: string
+}
+
 export interface KeyOccurrence {
   key: string
   filepath: string

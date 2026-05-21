@@ -201,10 +201,19 @@ export class ProjectDetector {
   private async detectSourceLanguage(localesPaths: string[]): Promise<string> {
     const translationFiles = await this.findTranslationFiles(localesPaths)
 
-    for (const file of translationFiles) {
-      const basename = path.basename(file.filepath, path.extname(file.filepath))
-      if (basename === 'en' || basename === 'en-US' || basename === 'en-US.json')
-        return basename
+    const englishFiles = translationFiles.filter(f => {
+      const basename = path.basename(f.filepath, path.extname(f.filepath))
+      return basename === 'en' || basename === 'en-US' || basename.toLowerCase().startsWith('en-')
+    })
+    if (englishFiles.length > 0) {
+      const enUs = englishFiles.find(f => {
+        const b = path.basename(f.filepath, path.extname(f.filepath))
+        return b === 'en-US'
+      })
+      if (enUs) return 'en-US'
+      const en = englishFiles.find(f => path.basename(f.filepath, path.extname(f.filepath)) === 'en')
+      if (en) return 'en'
+      return path.basename(englishFiles[0].filepath, path.extname(englishFiles[0].filepath))
     }
 
     for (const locale of COMMON_LOCALES) {
@@ -268,8 +277,11 @@ export class ProjectDetector {
 
     const basename = path.basename(filepath, path.extname(filepath))
     for (const locale of COMMON_LOCALES) {
-      if (basename === locale || basename.startsWith(locale + '.'))
-        return locale
+      if (basename === locale) return locale
+      if (locale.includes('-') && basename.toLowerCase() === locale.toLowerCase()) return locale
+    }
+    for (const locale of COMMON_LOCALES) {
+      if (basename.startsWith(`${locale}.`)) return locale
     }
 
     return basename

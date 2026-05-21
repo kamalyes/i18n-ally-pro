@@ -1,6 +1,7 @@
 import { window, ViewColumn, workspace, Uri, Selection, Position, Range, ProgressLocation } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
+import { buildWebviewCsp, getWebviewNonce } from '../utils/webview'
 
 interface EditorMessage {
   type: 'ready' | 'edit' | 'translate' | 'translateMissing' | 'translateAll' | 'openFile' | 'delete'
@@ -13,6 +14,7 @@ export class KeyEditorPanel {
   private store: TranslationStore
   private panel: import('vscode').WebviewPanel | null = null
   private currentKey: string = ''
+  private focusLocale: string | null = null
   private suppressFocus: boolean = false
   private onDidChange?: () => void
 
@@ -21,8 +23,9 @@ export class KeyEditorPanel {
     this.onDidChange = onDidChange
   }
 
-  show(keypath: string) {
+  show(keypath: string, focusLocale?: string) {
     this.currentKey = keypath
+    this.focusLocale = focusLocale ?? null
 
     if (this.panel) {
       if (!this.suppressFocus) {
@@ -57,9 +60,8 @@ export class KeyEditorPanel {
         if (!msg.key || !msg.locale || msg.value === undefined) return
         try {
           await this.store.setTranslation(msg.locale, msg.key, msg.value)
-          this.update()
+          this.onDidChange?.()
           this.postToast(t('editor.saved', msg.key, msg.locale))
-          window.showInformationMessage(t('editor.saved', msg.key, msg.locale))
         } catch (err: any) {
           this.postToast(t('editor.save_failed', err.message), 'error')
           window.showErrorMessage(t('editor.save_failed', err.message))
@@ -68,9 +70,8 @@ export class KeyEditorPanel {
       }
       case 'translate': {
         if (!msg.key || !msg.locale) return
-        const config = this.store.projectConfig
-        const sourceValue = this.store.getTranslation(config.sourceLanguage, msg.key)
-        if (!sourceValue) {
+        const source = this.store.resolveSourceTranslation(msg.key)
+        if (!source) {
           this.postToast(t('editor.no_source', msg.key), 'warn')
           window.showWarningMessage(t('editor.no_source', msg.key))
           return
@@ -78,7 +79,7 @@ export class KeyEditorPanel {
         try {
           const { TranslatorService } = await import('../services/translator')
           const translator = new TranslatorService(this.store)
-          const result = await translator.translateText(sourceValue, config.sourceLanguage, msg.locale)
+          const result = await translator.translateText(source.value, source.locale, msg.locale)
           if (result) {
             await this.store.setTranslation(msg.locale, msg.key, result)
             this.update()
@@ -158,16 +159,12 @@ export class KeyEditorPanel {
     const sourceLocale = config.sourceLanguage
     const locales = this.store.locales
 
-    const localeItems = locales
-      .filter(l => {
-        const v = this.store.getTranslation(l, key)
-        return v !== undefined && v !== ''
-      })
-      .map(l => ({
-        label: `${getLocaleFlag(l)} ${l}`,
-        description: this.store.getTranslation(l, key) || '',
-        locale: l,
-      }))
+    const localeItems = this.store.listLocalesWithTranslation(key).map(item => ({
+      label: `${getLocaleFlag(item.locale)} ${item.locale}`,
+      description: item.value,
+      locale: item.locale,
+      resolvedKey: item.resolvedKey,
+    }))
 
     const customItem = { label: `✏️ ${t('editor.custom_source')}`, description: '', locale: '__custom__' }
 
@@ -192,7 +189,8 @@ export class KeyEditorPanel {
       sourceText = custom
       fromLocale = sourceLocale
     } else {
-      sourceText = this.store.getTranslation(picked.locale, key) || ''
+      const resolvedKey = (picked as { resolvedKey?: string }).resolvedKey ?? key
+      sourceText = this.store.getTranslation(picked.locale, resolvedKey) || ''
       fromLocale = picked.locale
     }
 
@@ -304,10 +302,19 @@ export class KeyEditorPanel {
     }
   }
 
+  private postFocusLocale() {
+    if (!this.panel || !this.focusLocale) return
+    const locale = this.focusLocale
+    this.focusLocale = null
+    this.panel.webview.postMessage({ type: 'focusLocale', locale })
+  }
+
   private update() {
     if (!this.panel) return
 
     const key = this.currentKey
+    const nonce = getWebviewNonce()
+    const csp = buildWebviewCsp(this.panel.webview, nonce)
     const locales = this.store.locales
     const config = this.store.projectConfig
     const sourceLocale = config.sourceLanguage
@@ -343,10 +350,10 @@ export class KeyEditorPanel {
               rows="2"
             >${displayValue}</textarea>
             <div class="action-buttons">
-              <button class="btn btn-save" onclick="saveValue('${this.escJs(locale)}','${this.escJs(key)}')" title="Save">💾</button>
-              ${!isSource && isMissing ? `<button class="btn btn-translate" onclick="translateKey('${this.escJs(locale)}','${this.escJs(key)}')" title="Auto translate">🤖</button>` : ''}
-              <button class="btn btn-open" onclick="openFile('${this.escJs(locale)}','${this.escJs(key)}')" title="Open in editor">📂</button>
-              <button class="btn btn-delete" onclick="deleteKey('${this.escJs(locale)}','${this.escJs(key)}')" title="Delete">🗑️</button>
+              <button class="btn btn-save" data-action="save" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Save">💾</button>
+              ${!isSource && isMissing ? `<button class="btn btn-translate" data-action="translate" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Auto translate">🤖</button>` : ''}
+              <button class="btn btn-open" data-action="open" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Open in editor">📂</button>
+              <button class="btn btn-delete" data-action="delete" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Delete">🗑️</button>
             </div>
           </div>
         </div>`
@@ -362,12 +369,13 @@ export class KeyEditorPanel {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Key Editor: ${this.escHtml(key)}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; }
+    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; user-select: text; -webkit-user-select: text; }
     .header { margin-bottom: 16px; }
     .key-path { font-family: monospace; font-size: 16px; color: #4CAF50; word-break: break-all; }
     .stats { display: flex; gap: 12px; margin-top: 8px; }
@@ -391,8 +399,9 @@ export class KeyEditorPanel {
       flex: 1; padding: 8px 10px; background: #2d2d2d; border: 1px solid #444;
       border-radius: 4px; color: #d4d4d4; font-size: 13px; font-family: inherit;
       resize: vertical; min-height: 36px; outline: none;
+      user-select: text; -webkit-user-select: text; pointer-events: auto;
     }
-    .translation-input:focus { border-color: #4CAF50; }
+    .translation-input:focus { border-color: #4CAF50; box-shadow: 0 0 0 1px rgba(76,175,80,0.35); }
     .translation-input::placeholder { color: #666; font-style: italic; }
     .action-buttons { display: flex; gap: 4px; flex-shrink: 0; }
     .btn { width: 32px; height: 32px; border: 1px solid #444; border-radius: 4px;
@@ -421,12 +430,12 @@ export class KeyEditorPanel {
       ${emptyCount > 0 ? `<span class="stat empty">⬜ ${emptyCount} ${t('editor.empty')}</span>` : ''}
     </div>
     <div class="header-actions">
-      <button class="btn-action btn-fill" onclick="translateMissing()" title="${t('editor.translate_missing')}">🤖 ${t('editor.translate_missing')}</button>
-      <button class="btn-action btn-overwrite" onclick="translateAll()" title="${t('editor.translate_all')}">🔄 ${t('editor.translate_all')}</button>
+      <button type="button" class="btn-action btn-fill" data-action="translate-missing" title="${t('editor.translate_missing')}">🤖 ${t('editor.translate_missing')}</button>
+      <button type="button" class="btn-action btn-overwrite" data-action="translate-all" title="${t('editor.translate_all')}">🔄 ${t('editor.translate_all')}</button>
     </div>
   </div>
   <div id="locales">${rows}</div>
-  <script>
+  <script nonce="${nonce}">
     const I18N = ${JSON.stringify({
       saving: t('editor.saving'),
       saved: t('editor.saved', '{0}', '{1}'),
@@ -456,51 +465,67 @@ export class KeyEditorPanel {
       else { btn.classList.remove('loading'); }
     }
 
-    function saveValue(locale, key) {
+    function saveValue(locale, key, btn) {
       const textarea = document.querySelector(\`textarea[data-locale="\${locale}"][data-key="\${key}"]\`);
       if (!textarea) return;
-      const btn = event.currentTarget;
-      setBtnLoading(btn, true);
+      if (btn) setBtnLoading(btn, true);
       vscode.postMessage({ type: 'edit', key, locale, value: textarea.value });
     }
 
-    function translateKey(locale, key) {
-      const btn = event.currentTarget;
-      setBtnLoading(btn, true);
+    function translateKey(locale, key, btn) {
+      if (btn) setBtnLoading(btn, true);
       vscode.postMessage({ type: 'translate', key, locale });
     }
 
     function openFile(locale, key) {
       vscode.postMessage({ type: 'openFile', key, locale });
-        showToast(I18N.openingFile);
+      showToast(I18N.openingFile);
     }
 
     function deleteKey(locale, key) {
       vscode.postMessage({ type: 'delete', key, locale });
     }
 
-    function translateMissing() {
-      const btn = event.currentTarget;
-      btn.classList.add('loading');
+    function translateMissing(btn) {
+      if (btn) btn.classList.add('loading');
       vscode.postMessage({ type: 'translateMissing', key: I18N.currentKey });
-      setTimeout(() => { btn.classList.remove('loading'); }, 2000);
+      setTimeout(() => { if (btn) btn.classList.remove('loading'); }, 2000);
     }
 
-    function translateAll() {
-      const btn = event.currentTarget;
-      btn.classList.add('loading');
+    function translateAll(btn) {
+      if (btn) btn.classList.add('loading');
       vscode.postMessage({ type: 'translateAll', key: I18N.currentKey });
-      setTimeout(() => { btn.classList.remove('loading'); }, 2000);
+      setTimeout(() => { if (btn) btn.classList.remove('loading'); }, 2000);
     }
+
+    document.getElementById('locales')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const locale = btn.dataset.locale;
+      const key = btn.dataset.key || I18N.currentKey;
+      if (action === 'save') saveValue(locale, key, btn);
+      else if (action === 'translate') translateKey(locale, key, btn);
+      else if (action === 'open') openFile(locale, key);
+      else if (action === 'delete') deleteKey(locale, key);
+    });
+
+    document.querySelector('[data-action="translate-missing"]')?.addEventListener('click', (e) => {
+      translateMissing(e.currentTarget);
+    });
+    document.querySelector('[data-action="translate-all"]')?.addEventListener('click', (e) => {
+      translateAll(e.currentTarget);
+    });
 
     document.querySelectorAll('.translation-input').forEach(input => {
       input.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 's') {
           e.preventDefault();
-          const locale = input.dataset.locale;
-          const key = input.dataset.key;
-          saveValue(locale, key);
+          saveValue(input.dataset.locale, input.dataset.key);
         }
+      });
+      input.addEventListener('blur', () => {
+        saveValue(input.dataset.locale, input.dataset.key);
       });
     });
 
@@ -511,10 +536,24 @@ export class KeyEditorPanel {
         document.querySelectorAll('.btn.loading').forEach(b => b.classList.remove('loading'));
         document.querySelectorAll('.btn-action.loading').forEach(b => b.classList.remove('loading'));
       }
+      if (msg.type === 'focusLocale' && msg.locale) {
+        const el = document.querySelector(\`textarea[data-locale="\${msg.locale}"]\`);
+        if (el) {
+          el.focus();
+          el.select();
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }
     });
+
+    setTimeout(() => {
+      const first = document.querySelector('.translation-input');
+      if (first && !document.querySelector('.translation-input:focus')) first.focus();
+    }, 80);
   </script>
 </body>
 </html>`
+    this.postFocusLocale()
   }
 
   private escHtml(s: string): string {

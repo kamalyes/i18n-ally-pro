@@ -31,10 +31,14 @@ export class I18nDiagnosticProvider {
 
       for (const match of matches) {
         const missingLocales: string[] = []
-        for (const locale of this.store.locales) {
-          const value = this.store.getTranslation(locale, match.key)
-          if (value === undefined || value === '')
-            missingLocales.push(locale)
+        const slots = this.store.getValidationLocaleSlots()
+
+        for (const { locales } of slots) {
+          const filled = locales.some(locale => {
+            const value = this.store.getTranslationInLocaleGroup(locale, match.key)
+            return value !== undefined && value !== ''
+          })
+          if (!filled) missingLocales.push(locales[0])
         }
 
         if (missingLocales.length > 0) {
@@ -43,7 +47,7 @@ export class I18nDiagnosticProvider {
             document.positionAt(match.end),
           )
 
-          const msg = missingLocales.length === this.store.locales.length
+          const msg = missingLocales.length === slots.length
             ? `i18n key "${match.key}" not found in any locale`
             : `i18n key "${match.key}" missing in: ${missingLocales.join(', ')}`
 

@@ -1,8 +1,21 @@
 import fs from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
+import {
+  getExclusiveGroupKey,
+  getLocaleExclusiveGroup,
+  localeIdEquals,
+} from './constants'
 import { ProjectDetector } from './detector'
-import { TranslationMap, TranslationFile, ProjectConfig, KeyStyle, DiagnosticInfo, ParserId } from './types'
+import {
+  TranslationMap,
+  TranslationFile,
+  ProjectConfig,
+  KeyStyle,
+  DiagnosticInfo,
+  ParserId,
+  ResolvedSourceTranslation,
+} from './types'
 import { JsonParser } from '../parsers/json'
 import { YamlParser } from '../parsers/yaml'
 import { PoParser } from '../parsers/po'
@@ -55,7 +68,151 @@ export class TranslationStore extends EventEmitter {
   }
 
   getTranslation(locale: string, key: string): string | undefined {
-    return this.translations[locale]?.[key]
+    const matchedLocale = this.matchLocale(locale)
+    if (!matchedLocale) return undefined
+    return this.translations[matchedLocale]?.[key]
+  }
+
+  /**
+   * 解析可用于机器翻译的源文案。
+   * 依次尝试：配置的源语言（含 en/en-US 等别名）→ 其它已有翻译的语言 → key 路径别名（如 menu.xxx）。
+   */
+  resolveSourceTranslation(key: string, preferredLocales?: string[]): ResolvedSourceTranslation | null {
+    const config = this.projectConfig
+    const localeOrder = this.expandLocaleCandidates([
+      ...(preferredLocales ?? []),
+      config.sourceLanguage,
+      config.displayLanguage,
+      ...this.locales,
+    ])
+    const keysToTry = this.expandKeyCandidates(key)
+
+    for (const tryKey of keysToTry) {
+      for (const locale of localeOrder) {
+        const value = this.getTranslation(locale, tryKey)
+        if (value !== undefined && value !== '') {
+          return { locale, value, resolvedKey: tryKey }
+        }
+      }
+    }
+
+    return null
+  }
+
+  /** 列出对该 key（含路径别名）已有非空翻译的语言，供批量翻译选择源语言。 */
+  listLocalesWithTranslation(key: string): { locale: string; value: string; resolvedKey: string }[] {
+    const keysToTry = this.expandKeyCandidates(key)
+    const result: { locale: string; value: string; resolvedKey: string }[] = []
+    const seenSlots = new Set<string>()
+
+    for (const locale of this.locales) {
+      const slotKey = getExclusiveGroupKey(locale)
+      if (seenSlots.has(slotKey)) continue
+
+      for (const tryKey of keysToTry) {
+        const value = this.getTranslationInLocaleGroup(locale, tryKey)
+        if (value !== undefined && value !== '') {
+          seenSlots.add(slotKey)
+          result.push({ locale: this.matchLocale(locale) ?? locale, value, resolvedKey: tryKey })
+          break
+        }
+      }
+    }
+
+    return result
+  }
+
+  /** 将配置语言解析为仓库中实际存在的 locale id（如 en ↔ en-US 互认）。 */
+  matchLocale(locale: string): string | null {
+    if (!locale) return null
+    if (this.translations[locale]) return locale
+
+    const group = getLocaleExclusiveGroup(locale)
+    if (group) {
+      for (const member of group) {
+        const hit = this.locales.find(l => localeIdEquals(l, member))
+        if (hit) return hit
+      }
+    }
+
+    const base = locale.split(/[-_]/)[0]
+    const exactBase = this.locales.find(l => localeIdEquals(l, base))
+    if (exactBase) return exactBase
+
+    const regional = this.locales.find(l => {
+      const lb = l.split(/[-_]/)[0]
+      return lb === base && (l.includes('-') || l.includes('_'))
+    })
+    if (regional) return regional
+
+    const loose = this.locales.find(l => l.split(/[-_]/)[0] === base)
+    return loose ?? null
+  }
+
+  /**
+   * 校验用 locale 槽位：互斥组（如 en / en-US）合并为一个槽，组内任一语言有译文即视为满足。
+   */
+  getValidationLocaleSlots(): { slotKey: string; locales: string[] }[] {
+    const slotMap = new Map<string, string[]>()
+
+    for (const locale of this.locales) {
+      const slotKey = getExclusiveGroupKey(locale)
+      const list = slotMap.get(slotKey) ?? []
+      list.push(locale)
+      slotMap.set(slotKey, list)
+    }
+
+    return Array.from(slotMap.entries()).map(([slotKey, locales]) => ({ slotKey, locales }))
+  }
+
+  /** 在 locale 或其互斥组任一成员上读取译文。 */
+  getTranslationInLocaleGroup(locale: string, key: string): string | undefined {
+    const keysToTry = this.expandKeyCandidates(key)
+    const localesToTry = new Set<string>()
+
+    const matched = this.matchLocale(locale)
+    if (matched) localesToTry.add(matched)
+
+    const group = getLocaleExclusiveGroup(locale)
+    if (group) {
+      for (const member of group) {
+        const hit = this.locales.find(l => localeIdEquals(l, member))
+        if (hit) localesToTry.add(hit)
+      }
+    }
+
+    for (const tryLocale of localesToTry) {
+      for (const tryKey of keysToTry) {
+        const value = this.translations[tryLocale]?.[tryKey]
+        if (value !== undefined && value !== '') return value
+      }
+    }
+
+    return undefined
+  }
+
+  private expandLocaleCandidates(locales: string[]): string[] {
+    const ordered: string[] = []
+    const seen = new Set<string>()
+
+    for (const raw of locales) {
+      const matched = this.matchLocale(raw) ?? raw
+      if (!seen.has(matched)) {
+        seen.add(matched)
+        ordered.push(matched)
+      }
+    }
+
+    return ordered
+  }
+
+  private expandKeyCandidates(key: string): string[] {
+    const candidates = new Set<string>([key])
+    for (const storedKey of this.getAllKeys()) {
+      if (storedKey === key) continue
+      if (storedKey.endsWith(`.${key}`)) candidates.add(storedKey)
+    }
+    return Array.from(candidates)
   }
 
   getAllTranslations(): TranslationMap {
@@ -127,15 +284,30 @@ export class TranslationStore extends EventEmitter {
   getDiagnostics(): DiagnosticInfo[] {
     const diagnostics: DiagnosticInfo[] = []
     const allKeys = this.getAllKeys()
-    const locales = this.locales
+    const slots = this.getValidationLocaleSlots()
 
     for (const key of allKeys) {
-      for (const locale of locales) {
-        const value = this.translations[locale]?.[key]
-        if (value === undefined)
-          diagnostics.push({ type: 'missing', key, locale })
-        else if (value === '')
-          diagnostics.push({ type: 'empty', key, locale })
+      for (const { locales } of slots) {
+        const representative = locales[0]
+        let hasDefined = false
+        let hasEmpty = false
+
+        for (const locale of locales) {
+          const value = this.translations[locale]?.[key]
+          if (value === undefined) continue
+          hasDefined = true
+          if (value === '') hasEmpty = true
+          else {
+            hasEmpty = false
+            break
+          }
+        }
+
+        if (!hasDefined) {
+          diagnostics.push({ type: 'missing', key, locale: representative })
+        } else if (hasEmpty) {
+          diagnostics.push({ type: 'empty', key, locale: representative })
+        }
       }
     }
 

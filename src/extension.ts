@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import { ExtensionContext, languages, window, workspace, commands, Uri, ViewColumn, Position, Range, Selection, CodeActionKind, RelativePattern, ProgressLocation } from 'vscode'
 import { TranslationStore } from './core/store'
 import { I18nHoverProvider } from './providers/hover'
@@ -244,7 +246,6 @@ function registerServices(context: ExtensionContext) {
 
   const localesPaths = store.projectConfig.localesPaths
   if (localesPaths && localesPaths.length > 0) {
-    const path = require('path')
     const localesDir = path.resolve(store.projectConfig.rootPath, localesPaths[0])
     const watcher = workspace.createFileSystemWatcher(
       new RelativePattern(localesDir, '**/*.{json,yaml,yml}')
@@ -415,7 +416,7 @@ function registerCommands(context: ExtensionContext) {
       if (!uri) return
 
       const goFilePath = uri.fsPath
-      const content = require('fs').readFileSync(goFilePath, 'utf-8')
+      const content = fs.readFileSync(goFilePath, 'utf-8')
       const constMap = errorCodeSyncService.parseGoConsts(content)
 
       if (constMap.size === 0) {
@@ -570,10 +571,15 @@ function registerCommands(context: ExtensionContext) {
     }),
     commands.registerCommand('i18nAllyPro.inlineEdit', async (key?: string, locale?: string) => {
       if (!store || !key || !locale) return
+      if (keyEditorPanel) {
+        keyEditorPanel.show(key, locale)
+        return
+      }
       const currentValue = store.getTranslation(locale, key) || ''
       const newValue = await window.showInputBox({
         prompt: `Edit "${key}" (${locale})`,
         value: currentValue,
+        ignoreFocusOut: true,
       })
       if (newValue !== undefined) {
         await store.setTranslation(locale, key, newValue)
@@ -582,9 +588,8 @@ function registerCommands(context: ExtensionContext) {
     }),
     commands.registerCommand('i18nAllyPro.inlineTranslate', async (key?: string, locales?: string[]) => {
       if (!store || !translatorService || !key || !locales) return
-      const config = store.projectConfig
-      const sourceValue = store.getTranslation(config.sourceLanguage, key)
-      if (!sourceValue) {
+      const source = store.resolveSourceTranslation(key)
+      if (!source) {
         window.showWarningMessage(t('misc.no_source', key))
         return
       }
@@ -592,7 +597,7 @@ function registerCommands(context: ExtensionContext) {
       let translated = 0
       for (const locale of locales) {
         try {
-          const result = await translatorService.translateText(sourceValue, config.sourceLanguage, locale)
+          const result = await translatorService.translateText(source.value, source.locale, locale)
           if (result) {
             await store.setTranslation(locale, key, result)
             translated++

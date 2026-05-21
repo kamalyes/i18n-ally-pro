@@ -1,5 +1,5 @@
 import { getLocaleFlagCssClass } from '../i18n'
-import { SUPPORTED_LOCALES, LOCALE_NAMES } from '../core/constants'
+import { SUPPORTED_LOCALES, LOCALE_NAMES, filterExclusiveLocaleCandidates } from '../core/constants'
 
 export interface CloneLocaleItem {
   locale: string
@@ -9,7 +9,8 @@ export interface CloneLocaleItem {
 }
 
 export function buildCloneLocaleData(existingLocales: string[]): CloneLocaleItem[] {
-  return SUPPORTED_LOCALES.map(l => ({
+  const candidates = filterExclusiveLocaleCandidates(SUPPORTED_LOCALES, existingLocales)
+  return candidates.map(l => ({
     locale: l,
     name: LOCALE_NAMES[l] || l,
     flagCss: getLocaleFlagCssClass(l),
@@ -60,8 +61,8 @@ export function getCloneDialogHtml(): string {
           <label for="cloneOverwrite" style="margin:0;display:inline">Overwrite existing translations</label>
         </div>
         <div class="clone-actions">
-          <button class="btn-cancel" onclick="hideCloneDialog()">Cancel</button>
-          <button class="btn-confirm" onclick="doClone()">Clone</button>
+          <button type="button" class="btn-cancel" data-action="clone-cancel">Cancel</button>
+          <button type="button" class="btn-confirm" data-action="clone-confirm">Clone</button>
         </div>
       </div>
     </div>
@@ -94,7 +95,7 @@ export function getCloneDialogJs(cloneLocaleData: CloneLocaleItem[], existingLoc
       grid.innerHTML = CLONE_LOCALE_DATA.filter(l => l.locale !== cloneSourceLocale).map(l => {
         const sel = cloneSelectedTargets.has(l.locale) ? ' selected' : '';
         const ex = l.exists ? ' exists' : '';
-        return '<div class="clone-target-item' + sel + ex + '" data-locale="' + l.locale + '" onclick="toggleCloneTarget(this, \\'' + l.locale + '\\')">' +
+        return '<div class="clone-target-item' + sel + ex + '" data-action="clone-target" data-locale="' + l.locale + '">' +
           '<span class="flag-icon-wrap"><span class="fi ' + l.flagCss + '"></span></span>' +
           '<span class="locale-code">' + l.locale + '</span>' +
           '<span class="locale-label">' + l.name + '</span>' +
@@ -133,5 +134,14 @@ export function getCloneDialogJs(cloneLocaleData: CloneLocaleItem[], existingLoc
         vscode.postMessage({ type: 'cloneLocale', sourceLocale: src, targetLocale: target, overwrite });
       }
     }
+
+    document.getElementById('cloneOverlay')?.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-action]');
+      if (!el) return;
+      const action = el.dataset.action;
+      if (action === 'clone-cancel') hideCloneDialog();
+      else if (action === 'clone-confirm') doClone();
+      else if (action === 'clone-target' && el.dataset.locale) toggleCloneTarget(el, el.dataset.locale);
+    });
   `
 }

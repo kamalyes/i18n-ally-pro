@@ -167,8 +167,8 @@ export class I18nHoverProvider implements HoverProvider {
 
     contents.appendMarkdown(`### 🌐 \`${key}\`\n\n`)
 
-    contents.appendMarkdown('| | Locale | Value |\n')
-    contents.appendMarkdown('|:---:|:---:|:---|\n')
+    contents.appendMarkdown('| | Locale | Value | Edit |\n')
+    contents.appendMarkdown('|:---:|:---:|:---|:---:|\n')
 
     const orderedLocales = [displayLocale, ...allLocales.filter(l => l !== displayLocale)]
     for (const locale of orderedLocales) {
@@ -182,7 +182,10 @@ export class I18nHoverProvider implements HoverProvider {
         ? '⚠️ *(missing)*'
         : `\`${value!.length > 120 ? value!.slice(0, 120) + '…' : value!}\``
 
-      contents.appendMarkdown(`| ${flag} | ${localeLabel} | ${displayValue} |\n`)
+      const editCmd = `[✏️](command:i18nAllyPro.inlineEdit?${encodeURIComponent(JSON.stringify([key, locale]))})`
+      const goCmd = ` [📂](command:i18nAllyPro.openKeyAndFile?${encodeURIComponent(JSON.stringify([key, locale]))})`
+
+      contents.appendMarkdown(`| ${flag} | ${localeLabel} | ${displayValue} | ${editCmd}${goCmd} |\n`)
     }
 
     contents.appendMarkdown('\n---\n')

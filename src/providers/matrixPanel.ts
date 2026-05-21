@@ -2,6 +2,8 @@ import { window, ViewColumn, Uri, workspace } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
 import type { TranslatorService } from '../services/translator'
+import { buildWebviewCsp, getWebviewNonce } from '../utils/webview'
+import { t } from '../i18n'
 
 interface MatrixMessage {
   type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'exportCsv' | 'openFile' | 'cloneLocale'
@@ -45,52 +47,101 @@ export class TranslationMatrixPanel {
     this.update()
   }
 
+  private postToast(message: string, level: 'success' | 'error' | 'warn' = 'success') {
+    this.panel?.webview.postMessage({ type: 'toast', message, level })
+  }
+
   private async handleMessage(msg: MatrixMessage) {
     switch (msg.type) {
       case 'editCell': {
-        if (!msg.key || !msg.locale) return
-        const current = this.store.getTranslation(msg.locale, msg.key) || ''
-        const newValue = await window.showInputBox({
-          prompt: `Edit "${msg.key}" (${msg.locale})`,
-          value: current,
-        })
-        if (newValue !== undefined) {
-          await this.store.setTranslation(msg.locale, msg.key, newValue)
-          this.update()
+        if (!msg.key || !msg.locale || msg.value === undefined) return
+        try {
+          await this.store.setTranslation(msg.locale, msg.key, msg.value)
+          this.panel?.webview.postMessage({
+            type: 'cellSaved',
+            key: msg.key,
+            locale: msg.locale,
+            value: msg.value,
+          })
+          this.postToast(t('editor.saved', msg.key, msg.locale))
+        } catch (err: any) {
+          this.panel?.webview.postMessage({
+            type: 'cellSaveFailed',
+            key: msg.key,
+            locale: msg.locale,
+          })
+          this.postToast(t('editor.save_failed', err.message), 'error')
+          window.showErrorMessage(t('editor.save_failed', err.message))
         }
         break
       }
       case 'translateCell': {
         if (!msg.key || !msg.locale) return
-        const config = this.store.projectConfig
-        const sourceValue = this.store.getTranslation(config.sourceLanguage, msg.key)
-        if (!sourceValue) {
-          window.showWarningMessage(`No source translation for "${msg.key}"`)
+        this.panel?.webview.postMessage({
+          type: 'cellTranslating',
+          key: msg.key,
+          locale: msg.locale,
+        })
+        const source = this.store.resolveSourceTranslation(msg.key)
+        if (!source) {
+          this.panel?.webview.postMessage({
+            type: 'cellTranslateFailed',
+            key: msg.key,
+            locale: msg.locale,
+          })
+          this.postToast(t('editor.no_source', msg.key), 'warn')
+          window.showWarningMessage(t('editor.no_source', msg.key))
           return
         }
         const { TranslatorService } = await import('../services/translator')
         const translator = new TranslatorService(this.store)
         try {
-          const result = await translator.translateText(sourceValue, config.sourceLanguage, msg.locale)
+          const result = await translator.translateText(source.value, source.locale, msg.locale)
           if (result) {
             await this.store.setTranslation(msg.locale, msg.key, result)
-            this.update()
+            this.panel?.webview.postMessage({
+              type: 'cellTranslated',
+              key: msg.key,
+              locale: msg.locale,
+              value: result,
+            })
+            this.postToast(t('editor.translated_ok', msg.key, msg.locale))
+          } else {
+            this.panel?.webview.postMessage({
+              type: 'cellTranslateFailed',
+              key: msg.key,
+              locale: msg.locale,
+            })
+            this.postToast(t('editor.translated_empty', msg.key, msg.locale), 'warn')
+            window.showWarningMessage(t('editor.translated_empty', msg.key, msg.locale))
           }
         } catch (err: any) {
-          window.showErrorMessage(`Translation failed: ${err.message}`)
+          this.panel?.webview.postMessage({
+            type: 'cellTranslateFailed',
+            key: msg.key,
+            locale: msg.locale,
+          })
+          this.postToast(t('editor.translate_failed', err.message), 'error')
+          window.showErrorMessage(t('editor.translate_failed', err.message))
         }
         break
       }
       case 'translateAllMissing': {
+        this.postToast(t('editor.translating'), 'warn')
         const { TranslatorService } = await import('../services/translator')
         const translator = new TranslatorService(this.store)
         const result = await translator.autoTranslateEmptyKeys()
         const emoji = result.errors > 0 ? '⚠️' : '✅'
-        window.showInformationMessage(
-          `${emoji} Translated: ${result.translated}, Skipped: ${result.skipped}, Errors: ${result.errors}`,
-        )
+        const summary = `${emoji} ${result.translated} translated, ${result.skipped} skipped, ${result.errors} errors`
+        window.showInformationMessage(summary)
         this.update()
-        this.panel?.webview.postMessage({ type: 'translateDone', translated: result.translated, errors: result.errors })
+        this.panel?.webview.postMessage({
+          type: 'translateDone',
+          translated: result.translated,
+          errors: result.errors,
+          skipped: result.skipped,
+        })
+        this.postToast(summary, result.errors > 0 ? 'warn' : 'success')
         break
       }
       case 'deleteKey': {
@@ -105,31 +156,38 @@ export class TranslationMatrixPanel {
             await this.store.deleteTranslation(locale, msg.key)
           }
           this.update()
+          this.postToast(t('editor.deleted', msg.key, 'all'))
         }
         break
       }
       case 'cloneLocale': {
         if (!msg.sourceLocale || !msg.targetLocale) return
+        this.postToast(t('editor.translating'), 'warn')
         try {
           const result = await this.store.cloneLocale(msg.sourceLocale, msg.targetLocale, msg.overwrite || false)
           await this.store.refresh()
           this.update()
-          window.showInformationMessage(
-            `✅ Cloned ${msg.sourceLocale} → ${msg.targetLocale}: ${result.cloned} keys copied, ${result.skipped} skipped`,
-          )
+          const cloneMsg = `✅ ${msg.sourceLocale} → ${msg.targetLocale}: ${result.cloned} copied, ${result.skipped} skipped`
+          window.showInformationMessage(cloneMsg)
           this.panel?.webview.postMessage({ type: 'cloneDone', cloned: result.cloned, skipped: result.skipped })
+          this.postToast(cloneMsg)
           if (this.translatorService && msg.sourceLocale !== msg.targetLocale) {
             const translateResult = await this.translatorService.translateLocale(msg.sourceLocale, msg.targetLocale, msg.overwrite || false)
             await this.store.refresh()
             this.update()
-            window.showInformationMessage(
-              `🌐 Translated ${msg.sourceLocale} → ${msg.targetLocale}: ${translateResult.translated} keys translated`,
-            )
-            this.panel?.webview.postMessage({ type: 'translateDone' })
+            const trMsg = `🌐 ${msg.sourceLocale} → ${msg.targetLocale}: ${translateResult.translated} translated`
+            window.showInformationMessage(trMsg)
+            this.panel?.webview.postMessage({
+              type: 'translateDone',
+              translated: translateResult.translated,
+              errors: translateResult.errors,
+            })
+            this.postToast(trMsg)
           }
         } catch (err: any) {
           window.showErrorMessage(`Clone failed: ${err.message}`)
           this.panel?.webview.postMessage({ type: 'cloneDone', error: true })
+          this.postToast(`Clone failed: ${err.message}`, 'error')
         }
         break
       }
@@ -142,13 +200,16 @@ export class TranslationMatrixPanel {
         if (uri) {
           const fs = require('fs')
           fs.writeFileSync(uri.fsPath, '\uFEFF' + csv, 'utf-8')
-          window.showInformationMessage(`Exported to ${uri.fsPath}`)
+          const exportMsg = `Exported to ${uri.fsPath}`
+          window.showInformationMessage(exportMsg)
+          this.postToast(exportMsg)
         }
         break
       }
       case 'openFile': {
-        if (!msg.key || !msg.locale) return
-        const file = this.store.findFileForKey(msg.key, msg.locale)
+        if (!msg.key) return
+        const locale = msg.locale || this.store.projectConfig.sourceLanguage
+        const file = this.store.findFileForKey(msg.key, locale)
         if (file) {
           const pos = this.store.findKeyPosition(file.filepath, msg.key)
           const doc = await workspace.openTextDocument(Uri.file(file.filepath))
@@ -159,6 +220,10 @@ export class TranslationMatrixPanel {
             editor.selection = new Selection(position, position)
             editor.revealRange(new Range(position, position))
           }
+          this.postToast(t('editor.opening_file'))
+        } else {
+          this.postToast(t('editor.file_not_found', msg.key), 'warn')
+          window.showWarningMessage(t('editor.file_not_found', msg.key))
         }
         break
       }
@@ -182,6 +247,8 @@ export class TranslationMatrixPanel {
   private update() {
     if (!this.panel) return
 
+    const nonce = getWebviewNonce()
+    const csp = buildWebviewCsp(this.panel.webview, nonce)
     const locales = this.store.locales
     const allKeys = this.store.getAllKeys()
     const config = this.store.projectConfig
@@ -193,29 +260,32 @@ export class TranslationMatrixPanel {
       const isSource = l === sourceLocale
       const border = isSource ? 'border-bottom:3px solid #4CAF50' : 'border-bottom:2px solid #333'
       const badge = isSource ? ' <span style="font-size:10px;color:#4CAF50">★</span>' : ''
-      return `<th style="padding:8px 12px;${border};white-space:nowrap;position:sticky;top:0;background:#1e1e1e;z-index:1;cursor:pointer" onclick="sortTable(${locales.indexOf(l) + 1})">${l.toUpperCase()}${badge}</th>`
+      return `<th style="padding:8px 12px;${border};white-space:nowrap;position:sticky;top:0;background:#1e1e1e;z-index:1;cursor:pointer" data-action="sort" data-col="${locales.indexOf(l) + 1}">${l.toUpperCase()}${badge}</th>`
     }).join('')
 
-    const keyHeader = `<th style="padding:8px 12px;border-bottom:2px solid #333;white-space:nowrap;position:sticky;top:0;background:#1e1e1e;z-index:1;cursor:pointer;text-align:left" onclick="sortTable(0)">KEY</th>`
+    const keyHeader = `<th style="padding:8px 12px;border-bottom:2px solid #333;white-space:nowrap;position:sticky;top:0;background:#1e1e1e;z-index:1;cursor:pointer;text-align:left" data-action="sort" data-col="0">KEY</th>`
 
     const rows = allKeys.map(key => {
       const missingForLocales: string[] = []
-      const cells = [`<td style="padding:6px 12px;border-bottom:1px solid #333;font-family:monospace;font-size:13px;white-space:nowrap;color:#9CDCFE;cursor:pointer" onclick="openFile('${this.escJs(key)}')" title="Click to open file">${this.escHtml(key)}</td>`]
+      const cells = [`<td style="padding:6px 12px;border-bottom:1px solid #333;font-family:monospace;font-size:13px;white-space:nowrap;color:#9CDCFE;cursor:pointer" data-action="open-file" data-key="${this.escAttr(key)}" title="Click to open file">${this.escHtml(key)}</td>`]
 
       for (const locale of locales) {
         const value = this.store.getTranslation(locale, key)
         const isEmpty = value === undefined || value === ''
         if (isEmpty) missingForLocales.push(locale)
 
-        const style = isEmpty
-          ? 'padding:6px 12px;border-bottom:1px solid #333;background:rgba(255,0,0,0.08);color:#f48771;font-style:italic;cursor:pointer'
-          : 'padding:6px 12px;border-bottom:1px solid #333;color:#CE9178;cursor:pointer'
+        const cellClass = isEmpty ? 'cell-td missing' : 'cell-td'
+        const display = isEmpty ? '' : this.escHtml(value)
+        const translateBtn = isEmpty
+          ? `<button type="button" class="cell-translate" data-action="translate" data-key="${this.escAttr(key)}" data-locale="${this.escAttr(locale)}" title="Auto translate">🤖</button>`
+          : ''
 
-        const display = isEmpty ? '(missing)' : this.escHtml(value.length > 60 ? value.slice(0, 60) + '...' : value)
-        const clickAction = isEmpty ? `translateCell('${this.escJs(key)}','${locale}')` : `editCell('${this.escJs(key)}','${locale}')`
-        const hoverTitle = isEmpty ? 'Click to translate' : `Click to edit\n${this.escHtml(value || '')}`
-
-        cells.push(`<td style="${style}" onclick="${clickAction}" title="${hoverTitle}">${display}</td>`)
+        cells.push(`<td class="${cellClass}">
+          <div class="cell-wrap">
+            <textarea class="cell-input" rows="2" data-key="${this.escAttr(key)}" data-locale="${this.escAttr(locale)}" placeholder="${isEmpty ? '(missing)' : ''}">${display}</textarea>
+            ${translateBtn}
+          </div>
+        </td>`)
       }
 
       const rowClass = missingForLocales.length > 0 ? 'row-incomplete' : 'row-complete'
@@ -249,13 +319,14 @@ export class TranslationMatrixPanel {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Translation Matrix</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; }
-    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; }
+    body { background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; user-select: text; -webkit-user-select: text; }
     .toolbar { padding: 12px 20px; border-bottom: 1px solid #333; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .toolbar h2 { color: #4CAF50; font-size: 16px; margin-right: 8px; }
     .search-box { flex: 1; min-width: 200px; max-width: 400px; padding: 6px 12px; background: #2d2d2d; border: 1px solid #555; border-radius: 4px; color: #d4d4d4; font-size: 13px; outline: none; }
@@ -281,21 +352,39 @@ export class TranslationMatrixPanel {
     tr.row-incomplete { border-left: 3px solid #f48771; }
     tr.row-complete { border-left: 3px solid transparent; }
     .hidden { display: none !important; }
+    .cell-td { padding: 4px 6px; border-bottom: 1px solid #333; vertical-align: top; min-width: 140px; }
+    .cell-td.missing { background: rgba(255,0,0,0.06); }
+    .cell-wrap { display: flex; gap: 4px; align-items: flex-start; }
+    .cell-input {
+      flex: 1; min-width: 100px; padding: 6px 8px; background: #2d2d2d; border: 1px solid #444;
+      border-radius: 4px; color: #CE9178; font-size: 12px; font-family: inherit; resize: vertical;
+      outline: none; user-select: text; -webkit-user-select: text; pointer-events: auto;
+    }
+    .cell-input:focus { border-color: #4CAF50; }
+    .cell-input::placeholder { color: #f48771; font-style: italic; }
+    .cell-translate { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid #444; border-radius: 4px;
+      background: #2d2d2d; cursor: pointer; font-size: 12px; }
+    .cell-translate:hover { border-color: #2196F3; }
+    .cell-translate.loading { opacity: 0.5; pointer-events: none; }
+    .cell-input.saving { border-color: #FFC107; opacity: 0.85; }
+    .cell-input.saved-flash { border-color: #4CAF50; transition: border-color 0.3s; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 8px 20px; border-radius: 6px; font-size: 13px; z-index: 9999; transition: opacity 0.3s; pointer-events: none; color: #fff; max-width: 90%; text-align: center; }
+    .btn.loading { opacity: 0.6; pointer-events: none; }
     ${getCloneDialogCss()}
   </style>
 </head>
 <body>
   <div class="toolbar">
     <h2>🌐 Translation Matrix</h2>
-    <input class="search-box" type="text" placeholder="Search keys or values..." oninput="filterTable(this.value)" />
+    <input id="matrixSearch" class="search-box" type="text" placeholder="Search keys or values..." data-action="search" />
     <div class="filter-group">
-      <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
-      <button class="filter-btn" onclick="setFilter('missing', this)">Missing</button>
-      <button class="filter-btn" onclick="setFilter('complete', this)">Complete</button>
+      <button type="button" class="filter-btn active" data-action="filter" data-filter="all">All</button>
+      <button type="button" class="filter-btn" data-action="filter" data-filter="missing">Missing</button>
+      <button type="button" class="filter-btn" data-action="filter" data-filter="complete">Complete</button>
     </div>
-    <button class="btn btn-primary" onclick="translateAllMissing()">🤖 Translate All Missing</button>
-    <button class="btn" onclick="showCloneDialog()">📋 Clone Locale</button>
-    <button class="btn" onclick="exportCsv()">📄 Export CSV</button>
+    <button type="button" class="btn btn-primary" data-action="translate-all">🤖 Translate All Missing</button>
+    <button type="button" class="btn" data-action="clone-dialog">📋 Clone Locale</button>
+    <button type="button" class="btn" data-action="export-csv">📄 Export CSV</button>
   </div>
   <div class="stats-bar">
     <span class="stat ok">✓ ${allKeys.length} keys</span>
@@ -310,7 +399,7 @@ export class TranslationMatrixPanel {
     </table>
   </div>
   ${getCloneDialogHtml()}
-  <script>
+  <script nonce="${nonce}">
     const ALL_LOCALES = ${JSON.stringify(locales)};
     const SOURCE_LOCALE = ${JSON.stringify(sourceLocale)};
     const vscode = acquireVsCodeApi();
@@ -318,11 +407,52 @@ export class TranslationMatrixPanel {
     let sortCol = -1;
     let sortAsc = true;
 
-    function editCell(key, locale) {
-      vscode.postMessage({ type: 'editCell', key, locale });
+    function showToast(message, level) {
+      let toast = document.getElementById('matrixToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'matrixToast';
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = message;
+      toast.style.background = level === 'error' ? '#d32f2f' : level === 'warn' ? '#f57c00' : '#388e3c';
+      toast.style.opacity = '1';
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2800);
+    }
+
+    function findCellInput(key, locale) {
+      return Array.from(document.querySelectorAll('.cell-input')).find(
+        el => el.dataset.key === key && el.dataset.locale === locale
+      ) || null;
+    }
+
+    function findTranslateBtn(key, locale) {
+      return Array.from(document.querySelectorAll('.cell-translate')).find(
+        el => el.dataset.key === key && el.dataset.locale === locale
+      ) || null;
+    }
+
+    function saveCell(el) {
+      const key = el.dataset.key;
+      const locale = el.dataset.locale;
+      if (!key || !locale) return;
+      if (el.dataset.saving === '1') return;
+      const prev = el.dataset.lastSaved ?? '';
+      if (el.value === prev) return;
+      el.dataset.saving = '1';
+      el.classList.add('saving');
+      vscode.postMessage({ type: 'editCell', key, locale, value: el.value });
     }
 
     function translateCell(key, locale) {
+      const btn = findTranslateBtn(key, locale);
+      if (btn?.classList.contains('loading')) return;
+      if (btn) {
+        btn.classList.add('loading');
+        btn.textContent = '⏳';
+      }
       vscode.postMessage({ type: 'translateCell', key, locale });
     }
 
@@ -342,20 +472,145 @@ export class TranslationMatrixPanel {
     }
 
     function exportCsv() {
+      const btn = document.querySelector('[data-action="export-csv"]');
+      if (btn) {
+        btn.classList.add('loading');
+        btn.textContent = '⏳ Export...';
+      }
       vscode.postMessage({ type: 'exportCsv' });
+      setTimeout(() => {
+        if (btn) {
+          btn.classList.remove('loading');
+          btn.textContent = '📄 Export CSV';
+        }
+      }, 1500);
     }
+
+    function bindMatrixUi() {
+      document.getElementById('matrixSearch')?.addEventListener('input', (e) => {
+        filterTable(e.target.value);
+      });
+
+      document.body.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-action]');
+        if (!el) return;
+        const action = el.dataset.action;
+        if (action === 'filter' && el.dataset.filter) {
+          setFilter(el.dataset.filter, el);
+        } else if (action === 'translate-all') {
+          translateAllMissing();
+        } else if (action === 'clone-dialog') {
+          if (typeof showCloneDialog === 'function') showCloneDialog();
+        } else if (action === 'export-csv') {
+          exportCsv();
+        } else if (action === 'sort' && el.dataset.col !== undefined) {
+          sortTable(Number(el.dataset.col));
+        } else if (action === 'open-file' && el.dataset.key) {
+          openFile(el.dataset.key);
+        }
+      });
+    }
+
+    bindMatrixUi();
+
+    function applyCellValue(key, locale, value) {
+      const el = findCellInput(key, locale);
+      if (!el) return;
+      el.value = value;
+      el.dataset.lastSaved = value;
+      el.classList.remove('saving');
+      el.classList.add('saved-flash');
+      setTimeout(() => el.classList.remove('saved-flash'), 1200);
+      const td = el.closest('.cell-td');
+      if (td) td.classList.remove('missing');
+      const btn = findTranslateBtn(key, locale);
+      if (btn) btn.remove();
+      const row = el.closest('tr');
+      if (row) {
+        const missing = row.querySelectorAll('.cell-td.missing').length;
+        if (missing === 0) {
+          row.classList.remove('row-incomplete');
+          row.classList.add('row-complete');
+        }
+      }
+    }
+
+    function resetTranslateBtn(key, locale) {
+      const btn = findTranslateBtn(key, locale);
+      if (btn) {
+        btn.classList.remove('loading');
+        btn.textContent = '🤖';
+      }
+    }
+
+    document.getElementById('matrixBody')?.addEventListener('blur', (e) => {
+      const el = e.target;
+      if (el && el.classList && el.classList.contains('cell-input')) saveCell(el);
+    }, true);
+
+    document.getElementById('matrixBody')?.addEventListener('keydown', (e) => {
+      const el = e.target;
+      if (!el || !el.classList || !el.classList.contains('cell-input')) return;
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        saveCell(el);
+      }
+    });
+
+    document.getElementById('matrixBody')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action="translate"]');
+      if (!btn) return;
+      e.preventDefault();
+      translateCell(btn.dataset.key, btn.dataset.locale);
+    });
+
+    document.querySelectorAll('.cell-input').forEach(el => {
+      el.dataset.lastSaved = el.value;
+    });
 
     window.addEventListener('message', event => {
       const msg = event.data;
+      if (msg.type === 'toast' && msg.message) {
+        showToast(msg.message, msg.level);
+      }
+      if (msg.type === 'cellSaved' && msg.key && msg.locale) {
+        applyCellValue(msg.key, msg.locale, msg.value ?? '');
+        const el = findCellInput(msg.key, msg.locale);
+        if (el) el.dataset.saving = '0';
+      }
+      if (msg.type === 'cellSaveFailed' && msg.key && msg.locale) {
+        const el = findCellInput(msg.key, msg.locale);
+        if (el) {
+          el.dataset.saving = '0';
+          el.classList.remove('saving');
+        }
+      }
+      if (msg.type === 'cellTranslated' && msg.key && msg.locale) {
+        applyCellValue(msg.key, msg.locale, msg.value ?? '');
+        resetTranslateBtn(msg.key, msg.locale);
+      }
+      if (msg.type === 'cellTranslateFailed' && msg.key && msg.locale) {
+        resetTranslateBtn(msg.key, msg.locale);
+      }
       if (msg.type === 'translateDone') {
         const btn = document.querySelector('.btn-primary');
         if (btn) {
           btn.disabled = false;
+          btn.classList.remove('loading');
           btn.style.opacity = '1';
-          btn.textContent = msg.translated > 0 ? '✅ Done!' : '🤖 Translate All Missing';
-          if (msg.translated > 0) {
-            setTimeout(() => { btn.textContent = '🤖 Translate All Missing'; }, 3000);
-          }
+          const label = msg.translated > 0
+            ? '✅ ' + msg.translated + ' done'
+            : '🤖 Translate All Missing';
+          btn.textContent = label;
+          setTimeout(() => { btn.textContent = '🤖 Translate All Missing'; }, 3500);
+        }
+      }
+      if (msg.type === 'cloneDone') {
+        const btn = document.querySelector('[data-action="clone-dialog"]');
+        if (btn) {
+          btn.classList.remove('loading');
+          btn.textContent = msg.error ? '❌ Clone failed' : '✅ Cloned ' + (msg.cloned || 0) + ' keys';
+          setTimeout(() => { btn.textContent = '📋 Clone Locale'; }, 3500);
         }
       }
     });
@@ -395,17 +650,6 @@ export class TranslationMatrixPanel {
     }
 
     ${getCloneDialogJs(cloneLocaleData, locales, sourceLocale)}
-
-    window.addEventListener('message', event => {
-      const msg = event.data;
-      if (msg.type === 'cloneDone') {
-        const btn = document.querySelector('.btn[onclick="showCloneDialog()"]');
-        if (btn) {
-          btn.textContent = msg.error ? '❌ Clone failed' : '✅ Cloned ' + (msg.cloned || 0) + ' keys';
-          setTimeout(() => { btn.textContent = '📋 Clone Locale'; }, 3000);
-        }
-      }
-    });
   </script>
 </body>
 </html>`
