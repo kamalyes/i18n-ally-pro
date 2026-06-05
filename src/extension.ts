@@ -344,7 +344,7 @@ function registerCommands(context: ExtensionContext) {
       const { GoScanner } = await import('./scanners/go')
       const { VueScanner } = await import('./scanners/vue')
       const { ReactScanner } = await import('./scanners/react')
-      const scanners = [new GoScanner(), new VueScanner(), new ReactScanner()]
+      const scanners = [new GoScanner({ isKnownKey: key => store!.hasKey(key) }), new VueScanner(), new ReactScanner()]
 
       let matchedKey: string | null = null
       for (const scanner of scanners) {

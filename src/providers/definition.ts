@@ -13,7 +13,7 @@ export class I18nDefinitionProvider implements DefinitionProvider {
 
   constructor(store: TranslationStore) {
     this.store = store
-    this.scanners = [new GoScanner(), new VueScanner(), new ReactScanner()]
+    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async provideDefinition(document: TextDocument, position: Position, _token: CancellationToken): Promise<Location | Location[] | undefined> {

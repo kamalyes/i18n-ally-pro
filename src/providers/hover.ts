@@ -16,7 +16,7 @@ export class I18nHoverProvider implements HoverProvider {
 
   constructor(store: TranslationStore) {
     this.store = store
-    this.scanners = [new GoScanner(), new VueScanner(), new ReactScanner()]
+    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async provideHover(document: TextDocument, position: Position, _token: CancellationToken): Promise<Hover | undefined> {

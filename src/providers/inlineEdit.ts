@@ -14,7 +14,7 @@ export class I18nInlineEditProvider implements CodeActionProvider {
 
   constructor(store: TranslationStore) {
     this.store = store
-    this.scanners = [new GoScanner(), new VueScanner(), new ReactScanner()]
+    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async provideCodeActions(

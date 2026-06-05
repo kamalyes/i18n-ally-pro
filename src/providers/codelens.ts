@@ -13,7 +13,7 @@ export class I18nCodeLensProvider implements CodeLensProvider {
 
   constructor(store: TranslationStore) {
     this.store = store
-    this.scanners = [new GoScanner(), new VueScanner(), new ReactScanner()]
+    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async provideCodeLenses(document: TextDocument): Promise<CodeLens[]> {

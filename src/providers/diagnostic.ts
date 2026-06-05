@@ -16,7 +16,7 @@ export class I18nDiagnosticProvider {
   constructor(store: TranslationStore) {
     this.store = store
     this.collection = languages.createDiagnosticCollection('i18nAllyPro')
-    this.scanners = [new GoScanner(), new VueScanner(), new ReactScanner()]
+    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async validateDocument(document: TextDocument) {

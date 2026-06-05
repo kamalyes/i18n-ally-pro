@@ -451,7 +451,9 @@
     "build:dev": "webpack --mode development",
     "dev": "webpack --mode development --watch",
     "package": "npm run build && vsce package",
-    "lint": "tsc --noEmit -p tsconfig.lint.json"
+    "lint": "tsc --noEmit -p tsconfig.lint.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -459,6 +461,7 @@
     "@vscode/vsce": "^2.32.0",
     "ts-loader": "^9.5.0",
     "typescript": "^5.3.0",
+    "vitest": "^4.1.12",
     "webpack": "^5.90.0",
     "webpack-cli": "^5.1.0"
   },

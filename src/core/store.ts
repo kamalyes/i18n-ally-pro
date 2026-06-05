@@ -231,6 +231,14 @@ export class TranslationStore extends EventEmitter {
     return Array.from(keys)
   }
 
+  /** key 是否在任一语言里存在；供 Go 扫描器的兜底模式做白名单判定 */
+  hasKey(key: string): boolean {
+    for (const localeData of Object.values(this.translations)) {
+      if (Object.prototype.hasOwnProperty.call(localeData, key)) return true
+    }
+    return false
+  }
+
   getKeysForLocale(locale: string): string[] {
     return Object.keys(this.translations[locale] || {})
   }

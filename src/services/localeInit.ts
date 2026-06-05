@@ -330,16 +330,15 @@ export class LocaleInitService {
     }
 
     const { GoScanner } = await import('../scanners/go')
-    const scanner = new GoScanner()
+    const scanner = new GoScanner({ isKnownKey: key => this.store.hasKey(key) })
 
     for (const file of goFiles) {
       try {
         const content = fs.readFileSync(file, 'utf-8')
         const matches = scanner.scan(content, file)
         for (const match of matches) {
-          if (match.key.includes('.')) {
-            keys.add(match.key)
-          }
+          // 扫描器现在只认 i18n 调用参数位上的字符串，扁平 key 同样有效，无需再按点号过滤
+          keys.add(match.key)
         }
       } catch { /* skip */ }
     }
