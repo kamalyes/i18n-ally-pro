@@ -63,6 +63,7 @@
   },
   "export": {
     "csv_desc": "逗号分隔值，兼容电子表格工具",
+    "failed": "导出失败 - {0}",
     "json_desc": "完整结构化数据，包含元信息",
     "pick_format": "选择导出格式",
     "success": "已导出 {0} 条翻译（{1} 种语言）到 {2}",
@@ -71,6 +72,7 @@
   },
   "import": {
     "existing_locale": "已有语言",
+    "failed": "导入失败 - {0}",
     "invalid_csv": "无效的 CSV 文件格式",
     "invalid_json": "无效的 JSON 文件格式",
     "invalid_xlsx": "无效的 XLSX 文件格式",
@@ -83,9 +85,16 @@
     "parse_failed": "解析文件失败：{0}",
     "pick_locales": "选择要导入的语言",
     "pick_mode": "选择导入模式",
-    "success": "已导入 {0} 条翻译（{1} 条跳过）来自 {2}",
+    "progress_keys": "正在导入 {0}... ({1}/{2})",
+    "progress_locale": "正在处理语言 [{0}/{1}]: {2}",
+    "progress_start": "正在从 {0} 导入...",
+    "progress_creating": "正在创建 {0} 的文件...",
+    "success": "已导入 {0} 条翻译（{1} 条跳过，{2} 个文件已创建）来自 {3}",
     "title": "导入 i18n 翻译",
     "unsupported_format": "不支持的文件格式，请使用 JSON、CSV 或 XLSX"
+  },
+  "matrix": {
+    "refresh_failed": "刷新矩阵失败：{0}"
   },
   "editor": {
     "add_key_done": "Key \"{0}\" 已创建，已翻译 {1} 个语言",

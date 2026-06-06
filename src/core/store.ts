@@ -497,6 +497,53 @@ export class TranslationStore extends EventEmitter {
     return this.files.find(f => f.locale === locale)
   }
 
+  /**
+   * Ensure a locale file exists. If not, create it based on an existing file's directory/parser.
+   * Returns the TranslationFile entry (existing or newly created).
+   */
+  async ensureLocaleFile(locale: string, preferredFilepath?: string, preferredParser?: ParserId): Promise<TranslationFile | null> {
+    const existing = this.files.find(f => f.locale === locale)
+    if (existing) return existing
+
+    // If preferredFilepath provided, use it directly
+    if (preferredFilepath) {
+      const parser: ParserId = preferredParser || 'json'
+      const dir = path.dirname(preferredFilepath)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      // Initialize empty file
+      const initData = parser === 'json' ? '{}' : ''
+      if (!fs.existsSync(preferredFilepath)) {
+        fs.writeFileSync(preferredFilepath, initData, 'utf-8')
+      }
+      const file: TranslationFile = { locale, filepath: preferredFilepath, parser }
+      this.files.push(file)
+      return file
+    }
+
+    // Otherwise, find a reference file from the same project
+    const refFile = this.files[0]
+    if (!refFile) return null
+
+    const dir = path.dirname(refFile.filepath)
+    const ext = path.extname(refFile.filepath)
+    const newFilePath = path.join(dir, `${locale}${ext}`)
+    const parser = refFile.parser
+
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    const initData = parser === 'json' ? '{}' : ''
+    if (!fs.existsSync(newFilePath)) {
+      fs.writeFileSync(newFilePath, initData, 'utf-8')
+    }
+
+    const file: TranslationFile = { locale, filepath: newFilePath, parser }
+    this.files.push(file)
+    return file
+  }
+
   findKeyPosition(filepath: string, key: string): { line: number; column: number } | null {
     const file = this.files.find(f => f.filepath === filepath)
     if (!file) return null

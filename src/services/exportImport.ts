@@ -1,21 +1,30 @@
-import { window, Uri, workspace } from 'vscode'
+import { window, Uri, workspace, ProgressLocation } from 'vscode'
 import { TranslationStore } from '../core/store'
+import { ParserId } from '../core/types'
 import { t } from '../i18n'
+import path from 'path'
 
 type ExportFormat = 'json' | 'csv' | 'xlsx'
-type ImportFormat = 'json' | 'csv' | 'xlsx' | 'auto'
 
 interface ExportData {
-  version: 1
+  version: 2
   exportedAt: string
   sourceLocale: string
   locales: string[]
   translations: Record<string, Record<string, string>>
+  /** locale -> relative filepath from project root */
+  filePaths: Record<string, string>
+  /** locale -> parser id */
+  parsers: Record<string, ParserId>
 }
 
 interface ParsedTranslations {
   locales: string[]
   translations: Record<string, Record<string, string>>
+  /** locale -> relative filepath from project root (from JSON export v2) */
+  filePaths?: Record<string, string>
+  /** locale -> parser id (from JSON export v2) */
+  parsers?: Record<string, ParserId>
 }
 
 export class ExportImportService {
@@ -41,8 +50,12 @@ export class ExportImportService {
     const allKeys = this.store.getAllKeys()
     const locales = this.store.locales
     const sourceLocale = this.store.projectConfig.sourceLanguage
+    const rootPath = this.store.projectConfig.rootPath
 
     const translations: Record<string, Record<string, string>> = {}
+    const filePaths: Record<string, string> = {}
+    const parsers: Record<string, ParserId> = {}
+
     for (const locale of locales) {
       translations[locale] = {}
       for (const key of allKeys) {
@@ -50,6 +63,12 @@ export class ExportImportService {
         if (value !== undefined) {
           translations[locale][key] = value
         }
+      }
+      // Save file path mapping
+      const file = this.store.getTranslationFiles().find(f => f.locale === locale)
+      if (file) {
+        filePaths[locale] = path.relative(rootPath, file.filepath).replace(/\\/g, '/')
+        parsers[locale] = file.parser
       }
     }
 
@@ -60,11 +79,13 @@ export class ExportImportService {
     switch (format.value) {
       case 'json': {
         const data: ExportData = {
-          version: 1,
+          version: 2,
           exportedAt: new Date().toISOString(),
           sourceLocale,
           locales,
           translations,
+          filePaths,
+          parsers,
         }
         buffer = Buffer.from(JSON.stringify(data, null, 2), 'utf-8')
         uri = await window.showSaveDialog({
@@ -171,7 +192,6 @@ export class ExportImportService {
           parsed = await this.parseXlsx(uri)
           break
         default:
-          // Auto-detect: try JSON first, then CSV, then XLSX
           parsed = await this.autoDetectAndParse(uri)
       }
     } catch (err: any) {
@@ -199,11 +219,13 @@ export class ExportImportService {
       throw new Error(t('import.invalid_json'))
     }
 
-    // Format 1: ExportData with version/translations fields
+    // Format 1: ExportData with version/translations fields (v1 or v2)
     if (data.version && data.translations) {
       return {
         locales: data.locales || Object.keys(data.translations),
         translations: data.translations,
+        filePaths: data.filePaths,
+        parsers: data.parsers,
       }
     }
 
@@ -350,7 +372,6 @@ export class ExportImportService {
     try {
       return await this.parseJson(uri)
     } catch {
-      // Try CSV
       try {
         return await this.parseCsv(uri)
       } catch {
@@ -360,8 +381,13 @@ export class ExportImportService {
   }
 
   private async doImport(parsed: ParsedTranslations, fileName: string): Promise<void> {
+    // Refresh store first to sync in-memory state with actual files on disk
+    // This ensures we don't skip keys based on stale in-memory data
+    await this.store.refresh()
+
     const existingLocales = this.store.locales
     const importLocales = parsed.locales.filter(l => Object.keys(parsed.translations[l] || {}).length > 0)
+    const rootPath = this.store.projectConfig.rootPath
 
     if (importLocales.length === 0) {
       window.showWarningMessage(t('import.no_data'))
@@ -403,25 +429,73 @@ export class ExportImportService {
 
     let imported = 0
     let skipped = 0
+    let created = 0
+
+    const totalKeys = selectedLocales.reduce((sum, item) => {
+      return sum + Object.keys(parsed.translations[item.label] || {}).length
+    }, 0)
 
     await window.withProgress(
       {
-        location: undefined as any,
-        title: 'i18n Pro: Importing translations',
-        cancellable: false,
+        location: ProgressLocation.Notification,
+        title: 'i18n Pro',
+        cancellable: true,
       },
-      async () => {
+      async (progress, token) => {
+        progress.report({ message: t('import.progress_start', fileName), increment: 0 })
+        let processed = 0
+        let localeIndex = 0
+
         for (const localeItem of selectedLocales) {
+          if (token.isCancellationRequested) break
+          localeIndex++
           const locale = localeItem.label
           const translations = parsed.translations[locale]
           if (!translations) continue
 
-          for (const [key, value] of Object.entries(translations)) {
+          // Ensure the locale file exists
+          const existingFile = this.store.getTranslationFiles().find(f => f.locale === locale)
+          if (!existingFile) {
+            // Try to use saved file path from export data
+            let preferredPath: string | undefined
+            let preferredParser: ParserId | undefined
+
+            if (parsed.filePaths && parsed.filePaths[locale]) {
+              preferredPath = path.join(rootPath, parsed.filePaths[locale])
+              preferredParser = parsed.parsers?.[locale]
+            }
+
+            progress.report({
+              message: t('import.progress_creating', locale),
+              increment: 0,
+            })
+
+            const file = await this.store.ensureLocaleFile(locale, preferredPath, preferredParser)
+            if (file) {
+              created++
+            } else {
+              // Cannot create file, skip this locale
+              skipped += Object.keys(translations).length
+              continue
+            }
+          }
+
+          const keys = Object.entries(translations)
+          progress.report({
+            message: t('import.progress_locale', String(localeIndex), String(selectedLocales.length), locale),
+            increment: 0,
+          })
+
+          for (const [key, value] of keys) {
+            if (token.isCancellationRequested) break
+            processed++
+
             const existing = this.store.getTranslation(locale, key)
 
             if (mode.value === 'merge') {
               if (existing !== undefined && existing !== '') {
                 skipped++
+                progress.report({ increment: (1 / totalKeys) * 100 })
                 continue
               }
             }
@@ -432,11 +506,22 @@ export class ExportImportService {
             } catch {
               skipped++
             }
+
+            if (processed % 10 === 0 || processed === totalKeys) {
+              progress.report({
+                message: t('import.progress_keys', String(locale), String(processed), String(totalKeys)),
+                increment: 0,
+              })
+            }
+            progress.report({ increment: (1 / totalKeys) * 100 })
           }
         }
       },
     )
 
-    window.showInformationMessage(t('import.success', String(imported), String(skipped), fileName))
+    // Refresh store to pick up new files
+    await this.store.refresh()
+
+    window.showInformationMessage(t('import.success', String(imported), String(skipped), String(created), fileName))
   }
 }

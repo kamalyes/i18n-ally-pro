@@ -6,7 +6,7 @@ import { buildWebviewCsp, getWebviewNonce } from '../utils/webview'
 import { t } from '../i18n'
 
 interface MatrixMessage {
-  type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'export' | 'import' | 'openFile' | 'cloneLocale'
+  type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'export' | 'import' | 'refresh' | 'openFile' | 'cloneLocale'
   key?: string
   locale?: string
   value?: string
@@ -192,17 +192,41 @@ export class TranslationMatrixPanel {
         break
       }
       case 'export': {
-        const { ExportImportService } = await import('../services/exportImport')
-        const exportService = new ExportImportService(this.store)
-        await exportService.exportTranslations()
+        const btn = 'export'
+        try {
+          const { ExportImportService } = await import('../services/exportImport')
+          const exportService = new ExportImportService(this.store)
+          await exportService.exportTranslations()
+          this.panel?.webview.postMessage({ type: 'exportDone' })
+        } catch (err: any) {
+          window.showErrorMessage(t('export.failed', err.message))
+          this.panel?.webview.postMessage({ type: 'exportDone', error: true })
+        }
         break
       }
       case 'import': {
-        const { ExportImportService } = await import('../services/exportImport')
-        const importService = new ExportImportService(this.store)
-        await importService.importTranslations()
-        await this.store.refresh()
-        this.update()
+        try {
+          const { ExportImportService } = await import('../services/exportImport')
+          const importService = new ExportImportService(this.store)
+          await importService.importTranslations()
+          await this.store.refresh()
+          this.update()
+          this.panel?.webview.postMessage({ type: 'importDone' })
+        } catch (err: any) {
+          window.showErrorMessage(t('import.failed', err.message))
+          this.panel?.webview.postMessage({ type: 'importDone', error: true })
+        }
+        break
+      }
+      case 'refresh': {
+        try {
+          await this.store.refresh()
+          this.update()
+          this.panel?.webview.postMessage({ type: 'refreshDone' })
+        } catch (err: any) {
+          window.showErrorMessage(t('matrix.refresh_failed', err.message))
+          this.panel?.webview.postMessage({ type: 'refreshDone', error: true })
+        }
         break
       }
       case 'openFile': {
@@ -371,6 +395,7 @@ export class TranslationMatrixPanel {
     <button type="button" class="btn" data-action="clone-dialog">📋 Clone Locale</button>
     <button type="button" class="btn" data-action="export">📤 Export</button>
     <button type="button" class="btn" data-action="import">📥 Import</button>
+    <button type="button" class="btn" data-action="refresh">🔄 Refresh</button>
   </div>
   <div class="stats-bar">
     <span class="stat ok">✓ ${allKeys.length} keys</span>
@@ -459,26 +484,35 @@ export class TranslationMatrixPanel {
 
     function doExport() {
       const btn = document.querySelector('[data-action="export"]');
+      if (btn && btn.disabled) return;
       if (btn) {
+        btn.disabled = true;
         btn.classList.add('loading');
         btn.textContent = '⏳ Export...';
       }
       vscode.postMessage({ type: 'export' });
-      setTimeout(() => {
-        if (btn) {
-          btn.classList.remove('loading');
-          btn.textContent = '📤 Export';
-        }
-      }, 2000);
     }
 
     function doImport() {
       const btn = document.querySelector('[data-action="import"]');
+      if (btn && btn.disabled) return;
       if (btn) {
+        btn.disabled = true;
         btn.classList.add('loading');
         btn.textContent = '⏳ Import...';
       }
       vscode.postMessage({ type: 'import' });
+    }
+
+    function doRefresh() {
+      const btn = document.querySelector('[data-action="refresh"]');
+      if (btn && btn.disabled) return;
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.textContent = '⏳ Refresh...';
+      }
+      vscode.postMessage({ type: 'refresh' });
     }
 
     function bindMatrixUi() {
@@ -500,6 +534,8 @@ export class TranslationMatrixPanel {
           doExport();
         } else if (action === 'import') {
           doImport();
+        } else if (action === 'refresh') {
+          doRefresh();
         } else if (action === 'sort' && el.dataset.col !== undefined) {
           sortTable(Number(el.dataset.col));
         } else if (action === 'open-file' && el.dataset.key) {
@@ -608,6 +644,33 @@ export class TranslationMatrixPanel {
           btn.classList.remove('loading');
           btn.textContent = msg.error ? '❌ Clone failed' : '✅ Cloned ' + (msg.cloned || 0) + ' keys';
           setTimeout(() => { btn.textContent = '📋 Clone Locale'; }, 3500);
+        }
+      }
+      if (msg.type === 'exportDone') {
+        const btn = document.querySelector('[data-action="export"]');
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          btn.textContent = msg.error ? '❌ Export failed' : '✅ Exported';
+          setTimeout(() => { btn.textContent = '📤 Export'; }, 3500);
+        }
+      }
+      if (msg.type === 'importDone') {
+        const btn = document.querySelector('[data-action="import"]');
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          btn.textContent = msg.error ? '❌ Import failed' : '✅ Imported';
+          setTimeout(() => { btn.textContent = '📥 Import'; }, 3500);
+        }
+      }
+      if (msg.type === 'refreshDone') {
+        const btn = document.querySelector('[data-action="refresh"]');
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          btn.textContent = msg.error ? '❌ Refresh failed' : '✅ Refreshed';
+          setTimeout(() => { btn.textContent = '🔄 Refresh'; }, 2000);
         }
       }
     });

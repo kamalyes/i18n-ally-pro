@@ -63,6 +63,7 @@
   },
   "export": {
     "csv_desc": "Comma-separated values, compatible with spreadsheet tools",
+    "failed": "Export failed - {0}",
     "json_desc": "Full structured data with metadata",
     "pick_format": "Select export format",
     "success": "Exported {0} translations across {1} locales to {2}",
@@ -71,6 +72,7 @@
   },
   "import": {
     "existing_locale": "existing locale",
+    "failed": "Import failed - {0}",
     "invalid_csv": "Invalid CSV file format",
     "invalid_json": "Invalid JSON file format",
     "invalid_xlsx": "Invalid XLSX file format",
@@ -83,9 +85,16 @@
     "parse_failed": "Failed to parse file: {0}",
     "pick_locales": "Select locales to import",
     "pick_mode": "Select import mode",
-    "success": "Imported {0} translations ({1} skipped) from {2}",
+    "progress_keys": "Importing {0}... ({1}/{2})",
+    "progress_locale": "Processing locale [{0}/{1}]: {2}",
+    "progress_start": "Starting import from {0}...",
+    "progress_creating": "Creating file for {0}...",
+    "success": "Imported {0} translations ({1} skipped, {2} files created) from {3}",
     "title": "Import i18n Translations",
     "unsupported_format": "Unsupported file format. Please use JSON, CSV, or XLSX."
+  },
+  "matrix": {
+    "refresh_failed": "Failed to refresh matrix: {0}"
   },
   "editor": {
     "add_key_done": "Key \"{0}\" created, {1} locales translated",
