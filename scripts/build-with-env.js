@@ -21,18 +21,18 @@ if (fs.existsSync(envPath)) {
 }
 
 // 从环境变量获取内置的 DeepL API 密钥
-const builtinApiKey = process.env.BUILTIN_DEEPL_API_KEY || envVars.BUILTIN_DEEPL_API_KEY
+const builtinApiKey = process.env.BUILTIN_DEEPL_API_KEY || envVars.BUILTIN_DEEPL_API_KEY || ''
 
 if (!builtinApiKey) {
-  console.error('❌ 错误：未设置 BUILTIN_DEEPL_API_KEY 环境变量')
-  console.log('💡 请设置环境变量：')
+  console.warn('⚠️ 未设置 BUILTIN_DEEPL_API_KEY 环境变量，将使用空字符串')
+  console.log('💡 如需内置翻译功能，请设置环境变量：')
   console.log('   1. 在 .env 文件中添加：BUILTIN_DEEPL_API_KEY=your-key-here:fx')
   console.log('   2. 或者在命令行设置：export BUILTIN_DEEPL_API_KEY=your-key-here:fx')
-  process.exit(1)
+} else {
+  console.log('🔑 内置 DeepL API 密钥: 已加载')
+  console.log(`🔑 内置 DeepL API 密钥: ${builtinApiKey.slice(0, 10)}...${builtinApiKey.slice(-3)}`)
 }
-
 console.log('🚀 开始构建 i18n Ally Pro 扩展...')
-console.log('🔑 内置 DeepL API 密钥: 已加载')
 
 // 设置环境变量并运行构建
 process.env.BUILTIN_DEEPL_API_KEY = builtinApiKey

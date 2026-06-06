@@ -146,40 +146,36 @@ export class ProgressDashboard {
       }
       if (msg.type === 'removeMissing') {
         try {
-          const diagnostics = this.store.getDiagnostics().filter(d => d.type === 'missing' || d.type === 'empty')
-          if (diagnostics.length === 0) {
+          // Require dependency scan data to determine which keys are unreferenced
+          if (!this.dependencyData) {
+            const scan = await window.showWarningMessage(
+              t('dashboard.remove_missing_scan_now'),
+            )
+            if (scan) {
+              await this.scanDependencies(true)
+            }
+            if (!this.dependencyData) {
+              this.panel?.webview.postMessage({ type: 'removeMissingDone', removed: 0 })
+              return
+            }
+          }
+
+          const unreferencedKeys = this.dependencyData.unreferencedKeys
+          if (unreferencedKeys.length === 0) {
             window.showInformationMessage(t('dashboard.remove_missing_none'))
             this.panel?.webview.postMessage({ type: 'removeMissingDone', removed: 0 })
             return
           }
 
           const confirm = await window.showWarningMessage(
-            t('dashboard.remove_missing_confirm', String(diagnostics.length)),
+            t('dashboard.remove_missing_confirm', String(unreferencedKeys.length)),
             { modal: true },
             t('dashboard.remove_missing_confirm_yes'),
           )
           if (!confirm) return
 
-          const allKeys = this.store.getAllKeys()
-          const missingKeys = new Set<string>()
-          for (const d of diagnostics) {
-            missingKeys.add(d.key)
-          }
-
-          // Only remove keys that are missing/empty in ALL locales
-          const keysToRemove: string[] = []
-          for (const key of missingKeys) {
-            const hasAnyFilled = allKeys.length > 0 && this.store.locales.some(locale => {
-              const v = this.store.getTranslation(locale, key)
-              return v !== undefined && v !== ''
-            })
-            if (!hasAnyFilled) {
-              keysToRemove.push(key)
-            }
-          }
-
           let removed = 0
-          for (const key of keysToRemove) {
+          for (const key of unreferencedKeys) {
             for (const locale of this.store.locales) {
               if (this.store.getTranslation(locale, key) !== undefined) {
                 await this.store.deleteTranslation(locale, key)
@@ -193,7 +189,7 @@ export class ProgressDashboard {
           this.update()
           this.ensureDependenciesScanned()
           if (this.onRefresh) this.onRefresh()
-          window.showInformationMessage(t('dashboard.remove_missing_done', String(removed), String(diagnostics.length - removed)))
+          window.showInformationMessage(t('dashboard.remove_missing_done', String(removed), String(unreferencedKeys.length - removed)))
           this.panel?.webview.postMessage({ type: 'removeMissingDone', removed })
         } catch (err: any) {
           window.showErrorMessage(t('dashboard.remove_missing_failed', err.message))
@@ -1035,7 +1031,7 @@ Instructions:
         <div class="btn-group">
           <button class="btn btn-info" onclick="autoTranslate()" title="Auto translate all missing keys">Auto Translate</button>
           <button class="btn btn-info" onclick="formatAll()" title="Format all locale files">Format</button>
-          <button class="btn btn-danger" onclick="removeMissing()" title="Remove keys that are missing/empty in all locales">Remove Missing</button>
+          <button class="btn btn-danger" onclick="removeMissing()" title="Remove unreferenced keys (not found in code)">Remove Missing</button>
         </div>
         <div class="btn-group">
           <button class="btn" onclick="openAIPrompt('codex')" title="Send dashboard prompt to Codex">Codex</button>
