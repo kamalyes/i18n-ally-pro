@@ -13,6 +13,9 @@ export interface TranslatorConfig {
   apiEndpoint?: string
 }
 
+/** 单次翻译请求超时（毫秒）。没有超时的话一个挂住的连接会让整批翻译永久停住。 */
+const REQUEST_TIMEOUT_MS = 30_000
+
 export abstract class BaseTranslator {
   abstract translate(req: TranslateRequest, config: TranslatorConfig): Promise<string>
 
@@ -41,6 +44,18 @@ export abstract class BaseTranslator {
         body: this.truncate(body),
       }))
 
+      let settled = false
+      const fail = (err: Error) => {
+        if (settled) return
+        settled = true
+        reject(err)
+      }
+      const succeed = (data: string) => {
+        if (settled) return
+        settled = true
+        resolve(data)
+      }
+
       const req = lib.request(options, (res) => {
         let data = ''
         res.on('data', (chunk) => { data += chunk })
@@ -52,15 +67,18 @@ export abstract class BaseTranslator {
           }))
 
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(data)
+            succeed(data)
           }
           else {
-            reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`))
+            fail(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`))
           }
         })
       })
 
-      req.on('error', reject)
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        req.destroy(new Error(`Request to ${parsedUrl.host} timed out after ${REQUEST_TIMEOUT_MS}ms`))
+      })
+      req.on('error', fail)
       req.write(body)
       req.end()
     })
@@ -152,10 +170,10 @@ export abstract class BaseTranslator {
       throw new Error('Translation returned empty result')
     }
 
-    // If result is identical to source, translation failed
-    if (result.trim() === source.trim()) {
-      throw new Error(`Translation returned identical source text for locale "${targetLocale}" — the translation service may not support this language pair`)
-    }
+    // 注意：不能因为「译文等于原文」就判失败。
+    // OK / Email / Wi-Fi / 品牌名 / 纯数字 在很多拉丁字母语言里译文本来就和原文一致，
+    // 真正的失败形态是「目标语言用的是另一套文字，却回了一串原样的拉丁字母」，由下面的检查负责。
+    // 同形但可疑的译文交给质量检查（identical_to_source）去提示，而不是在这里直接报错。
 
     // Check if target locale requires non-Latin script
     const baseLocale = targetLocale.replace('_', '-').split('-')[0].toLowerCase()

@@ -15,26 +15,29 @@ export class Concurrency {
     onProgress?: (completed: number, total: number) => void,
     cancellationToken?: { isCancellationRequested: boolean }
   ): Promise<T[]> {
-    const results: T[] = []
+    const total = tasks.length
+    const results = new Array<T>(total)
+    // 结果按下标回填：原来用 results.push，返回顺序是「完成顺序」而不是入参顺序，
+    // 依赖下标对齐的调用方（如 batchTranslate 把译文对回原文）会静默错位
+    const settled = new Array<boolean>(total).fill(false)
     const errors: any[] = []
     let completed = 0
-    const total = tasks.length
-
-    // 创建任务队列
-    const queue = [...tasks]
+    let nextIndex = 0
 
     // 执行器函数
     const worker = async (): Promise<void> => {
-      while (queue.length > 0) {
+      while (true) {
         // 检查取消
         if (cancellationToken?.isCancellationRequested) {
           break
         }
-        
-        const task = queue.shift()!
+
+        const index = nextIndex++
+        if (index >= total) break
+
         try {
-          const result = await task()
-          results.push(result)
+          results[index] = await tasks[index]()
+          settled[index] = true
         } catch (error) {
           errors.push(error)
         } finally {
@@ -56,7 +59,8 @@ export class Concurrency {
       console.warn(`并发执行完成，有 ${errors.length} 个错误`)
     }
 
-    return results
+    // 失败/未执行的位置剔除，保留入参顺序
+    return results.filter((_, index) => settled[index])
   }
 
   /**

@@ -10,27 +10,39 @@ export class PoParser implements Parser {
     let currentValue = ''
     let inMsgstr = false
 
+    let hasMsgstr = false
+
+    // msgstr 为空的条目也要落到结果里（空翻译 ≠ 不存在），
+    // 否则待翻译的条目在诊断里会显示成「缺失」而不是「空」
+    const commit = () => {
+      if (currentKey && hasMsgstr)
+        result[currentKey] = currentValue
+    }
+
     for (const line of text.split('\n')) {
       const trimmed = line.trim()
 
       if (trimmed.startsWith('msgid ')) {
-        if (currentKey && currentValue)
-          result[currentKey] = currentValue
+        commit()
         currentKey = this.extractPoString(trimmed.slice(6))
         currentValue = ''
         inMsgstr = false
+        hasMsgstr = false
       }
       else if (trimmed.startsWith('msgstr ')) {
         currentValue = this.extractPoString(trimmed.slice(7))
         inMsgstr = true
+        hasMsgstr = true
       }
       else if (trimmed.startsWith('"') && inMsgstr) {
         currentValue += this.extractPoString(trimmed)
       }
     }
 
-    if (currentKey && currentValue)
-      result[currentKey] = currentValue
+    commit()
+
+    // po 头部（msgid ""）不是翻译条目
+    delete result['']
 
     return result
   }

@@ -3,36 +3,29 @@ import {
   languages, workspace,
 } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { Scanner } from '../core/types'
-import { GoScanner } from '../scanners/go'
-import { VueScanner } from '../scanners/vue'
-import { ReactScanner } from '../scanners/react'
+import { DiagnosticInfo } from '../core/types'
+import { scanDocument } from '../scanners/cache'
 
 export class I18nDiagnosticProvider {
   private store: TranslationStore
   private collection: DiagnosticCollection
-  private scanners: Scanner[]
 
   constructor(store: TranslationStore) {
     this.store = store
     this.collection = languages.createDiagnosticCollection('i18nAllyPro')
-    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async validateDocument(document: TextDocument) {
     const diagnostics: Diagnostic[] = []
-    const text = document.getText()
-    const config = this.store.projectConfig
+    // 槽位只跟语言集合有关，提到循环外算一次（原来每个匹配都要重建一遍）
+    const slots = this.store.getValidationLocaleSlots()
+    /** 同一文件里同名 key 往往出现多次，缺失语言的判定结果可以复用 */
+    const missingByKey = new Map<string, string[]>()
 
-    for (const scanner of this.scanners) {
-      if (!scanner.languageIds.includes(document.languageId)) continue
-
-      const matches = scanner.scan(text, document.uri.fsPath)
-
-      for (const match of matches) {
-        const missingLocales: string[] = []
-        const slots = this.store.getValidationLocaleSlots()
-
+    for (const match of scanDocument(this.store, document)) {
+      let missingLocales = missingByKey.get(match.key)
+      if (!missingLocales) {
+        missingLocales = []
         for (const { locales } of slots) {
           const filled = locales.some(locale => {
             const value = this.store.getTranslationInLocaleGroup(locale, match.key)
@@ -40,24 +33,21 @@ export class I18nDiagnosticProvider {
           })
           if (!filled) missingLocales.push(locales[0])
         }
-
-        if (missingLocales.length > 0) {
-          const range = new Range(
-            document.positionAt(match.start),
-            document.positionAt(match.end),
-          )
-
-          const msg = missingLocales.length === slots.length
-            ? `i18n key "${match.key}" not found in any locale`
-            : `i18n key "${match.key}" missing in: ${missingLocales.join(', ')}`
-
-          diagnostics.push(new Diagnostic(
-            range,
-            msg,
-            DiagnosticSeverity.Warning,
-          ))
-        }
+        missingByKey.set(match.key, missingLocales)
       }
+
+      if (missingLocales.length === 0) continue
+
+      const range = new Range(
+        document.positionAt(match.start),
+        document.positionAt(match.end),
+      )
+
+      const msg = missingLocales.length === slots.length
+        ? `i18n key "${match.key}" not found in any locale`
+        : `i18n key "${match.key}" missing in: ${missingLocales.join(', ')}`
+
+      diagnostics.push(new Diagnostic(range, msg, DiagnosticSeverity.Warning))
     }
 
     this.collection.set(document.uri, diagnostics)
@@ -66,13 +56,19 @@ export class I18nDiagnosticProvider {
   async validateAll() {
     this.collection.clear()
 
-    const config = this.store.projectConfig
-    const allDiagnostics = this.store.getDiagnostics()
+    // 按 locale 分组一次，避免每个文件都在全量诊断上 filter
+    const missingByLocale = new Map<string, DiagnosticInfo[]>()
+    for (const diag of this.store.getDiagnostics()) {
+      if (diag.type !== 'missing' || !diag.locale) continue
+      const list = missingByLocale.get(diag.locale)
+      if (list) list.push(diag)
+      else missingByLocale.set(diag.locale, [diag])
+    }
 
     for (const file of this.store.getTranslationFiles()) {
       const diagnostics: Diagnostic[] = []
 
-      const missingKeys = allDiagnostics.filter(d => d.type === 'missing' && d.locale === file.locale)
+      const missingKeys = missingByLocale.get(file.locale) ?? []
       for (const diag of missingKeys) {
         const pos = this.store.findKeyPosition(file.filepath, diag.key)
         const range = pos

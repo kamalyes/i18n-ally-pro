@@ -3,18 +3,14 @@ import {
   CancellationToken, CodeActionContext, workspace, window, WorkspaceEdit,
 } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { Scanner, ScannerMatch } from '../core/types'
-import { GoScanner } from '../scanners/go'
-import { VueScanner } from '../scanners/vue'
-import { ReactScanner } from '../scanners/react'
+import { ScannerMatch } from '../core/types'
+import { findMatchAt, scanDocument } from '../scanners/cache'
 
 export class I18nInlineEditProvider implements CodeActionProvider {
   private store: TranslationStore
-  private scanners: Scanner[]
 
   constructor(store: TranslationStore) {
     this.store = store
-    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async provideCodeActions(
@@ -24,21 +20,13 @@ export class I18nInlineEditProvider implements CodeActionProvider {
     _token: CancellationToken,
   ): Promise<CodeAction[]> {
     const actions: CodeAction[] = []
-    const text = document.getText()
     const offset = document.offsetAt(range.start)
 
-    for (const scanner of this.scanners) {
-      if (!scanner.languageIds.includes(document.languageId)) continue
-
-      const matches = scanner.scan(text, document.uri.fsPath)
-      const match = matches.find(m => offset >= m.start && offset <= m.end)
-
-      if (match) {
-        actions.push(...this.createEditActions(match, document))
-        actions.push(...this.createTranslateActions(match, document))
-        actions.push(...this.createCopyActions(match, document))
-        break
-      }
+    const match = findMatchAt(scanDocument(this.store, document), offset)
+    if (match) {
+      actions.push(...this.createEditActions(match, document))
+      actions.push(...this.createTranslateActions(match, document))
+      actions.push(...this.createCopyActions(match, document))
     }
 
     return actions

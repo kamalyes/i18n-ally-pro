@@ -1,7 +1,6 @@
 import { window, workspace, ProgressLocation } from 'vscode'
-import { TranslationStore } from '../core/store'
-import { BUILTIN_DEEPL_API_KEY, DEFAULT_CONCURRENCY } from '../core/constants'
-import { Concurrency } from '../utils/concurrency'
+import { TranslationStore, TranslationEdit } from '../core/store'
+import { BUILTIN_DEEPL_API_KEY } from '../core/constants'
 import { BaseTranslator, TranslateRequest, TranslatorConfig } from '../translators/base'
 import { GoogleTranslator } from '../translators/google'
 import { DeepLTranslator } from '../translators/deepl'
@@ -19,7 +18,25 @@ export interface TranslatorServiceConfig {
   sourceLanguage: string
 }
 
+/** 翻译结果缓存上限。无上限的话长时间会话会把译文无限堆在内存里。 */
+const TRANSLATION_CACHE_LIMIT = 5000
 const translationCache = new Map<string, string>()
+
+function cacheTranslation(key: string, value: string) {
+  if (translationCache.size >= TRANSLATION_CACHE_LIMIT) {
+    const oldest = translationCache.keys().next().value
+    if (oldest !== undefined) translationCache.delete(oldest)
+  }
+  translationCache.set(key, value)
+}
+
+/** 进度条步长；total 为 0 时 100/total 是 Infinity，会把进度条顶爆 */
+function stepIncrement(total: number): number {
+  return total > 0 ? 100 / total : 0
+}
+
+/** 累计多少条译文后落一次盘：逐条写会把整份语言文件重复 dump 上千次 */
+const FLUSH_BATCH_SIZE = 20
 
 export class TranslatorService {
   private store: TranslationStore
@@ -114,7 +131,7 @@ export class TranslatorService {
     }
 
     if (result) {
-      translationCache.set(cacheKey, result)
+      cacheTranslation(cacheKey, result)
     }
 
     this.logTranslationResponse(effectiveEngine, from, to, text, result, false)
@@ -141,6 +158,9 @@ export class TranslatorService {
     const sourceKeys = this.store.getKeysForLocale(sourceLocale)
     const targetLocales = this.store.locales.filter(l => l !== sourceLocale)
 
+    if (sourceKeys.length === 0 || targetLocales.length === 0)
+      return { translated: 0, skipped: 0, errors: 0, errorMessages: [] }
+
     let translated = 0
     let skipped = 0
     let errors = 0
@@ -157,7 +177,15 @@ export class TranslatorService {
       },
       async (progress, token) => {
         const total = sourceKeys.length * targetLocales.length
+        const increment = stepIncrement(total)
         let current = 0
+
+        const pending: TranslationEdit[] = []
+        const flush = async () => {
+          if (pending.length === 0) return
+          await this.store.setTranslations(pending)
+          pending.length = 0
+        }
 
         progress.report({
           message: `Preparing... ${sourceKeys.length} keys × ${targetLocales.length} locales`,
@@ -181,7 +209,7 @@ export class TranslatorService {
             current++
             progress.report({
               message: `[${current}/${total}] 🔤 "${preview}" → ${getLocaleFlag(locale)} ${locale}`,
-              increment: (100 / total),
+              increment,
             })
 
             const existingValue = this.store.getTranslation(locale, key)
@@ -220,7 +248,8 @@ export class TranslatorService {
             try {
               const translatedText = await this.translateText(sourceValue, sourceLocale, locale)
               if (translatedText) {
-                await this.store.setTranslation(locale, key, translatedText)
+                pending.push({ locale, key, value: translatedText })
+                if (pending.length >= FLUSH_BATCH_SIZE) await flush()
                 translated++
                 const translatedPreview = translatedText.length > 20 ? translatedText.slice(0, 20) + '...' : translatedText
                 progress.report({
@@ -250,6 +279,8 @@ export class TranslatorService {
             await this.delay(usingFallback ? 500 : 200)
           }
         }
+
+        await flush()
 
         progress.report({
           message: `Done! ✅ ${translated} translated, ⏭ ${skipped} skipped, ❌ ${errors} errors`,
@@ -293,6 +324,13 @@ export class TranslatorService {
         const total = sourceKeys.length
         let current = 0
 
+        const pending: TranslationEdit[] = []
+        const flush = async () => {
+          if (pending.length === 0) return
+          await this.store.setTranslations(pending)
+          pending.length = 0
+        }
+
         progress.report({ message: `Preparing ${total} keys...` })
 
         for (const key of sourceKeys) {
@@ -309,7 +347,8 @@ export class TranslatorService {
           try {
             const result = await this.translateText(sourceValue, sourceLocale, targetLocale)
             if (result) {
-              await this.store.setTranslation(targetLocale, key, result)
+              pending.push({ locale: targetLocale, key, value: result })
+              if (pending.length >= FLUSH_BATCH_SIZE) await flush()
               translated++
               const resultPreview = result.length > 20 ? result.slice(0, 20) + '...' : result
               progress.report({ message: `[${current + 1}/${total}] ✅ "${preview}" → "${resultPreview}"` })
@@ -330,6 +369,8 @@ export class TranslatorService {
           current++
           await this.delay(usingFallback ? 500 : 200)
         }
+
+        await flush()
 
         progress.report({ message: `Done! ✅ ${translated} translated, ⏭ ${skipped} skipped, ❌ ${errors} errors` })
       },

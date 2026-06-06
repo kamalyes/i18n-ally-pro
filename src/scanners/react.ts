@@ -43,6 +43,7 @@ export class ReactScanner implements Scanner {
   scan(text: string, filepath: string): ScannerMatch[] {
     const matches: ScannerMatch[] = []
     const lines = text.split('\n')
+    const lineOffsets = this.buildLineOffsets(lines)
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const line = lines[lineIdx]
@@ -58,10 +59,11 @@ export class ReactScanner implements Scanner {
           if (!key || !isValidI18nKey(key)) continue
 
           const start = match.index + match[0].indexOf(key)
+          const absolute = lineOffsets[lineIdx] + start
           matches.push({
             key,
-            start: this.lineOffset(lines, lineIdx) + start,
-            end: this.lineOffset(lines, lineIdx) + start + key.length,
+            start: absolute,
+            end: absolute + key.length,
             line: lineIdx + 1,
             column: start,
           })
@@ -72,11 +74,15 @@ export class ReactScanner implements Scanner {
     return this.deduplicate(matches)
   }
 
-  private lineOffset(lines: string[], lineIdx: number): number {
+  /** 行首偏移前缀和：一次 O(n) 构建，取用 O(1) */
+  private buildLineOffsets(lines: string[]): number[] {
+    const offsets = new Array<number>(lines.length)
     let offset = 0
-    for (let i = 0; i < lineIdx; i++)
+    for (let i = 0; i < lines.length; i++) {
+      offsets[i] = offset
       offset += lines[i].length + 1
-    return offset
+    }
+    return offsets
   }
 
   private deduplicate(matches: ScannerMatch[]): ScannerMatch[] {

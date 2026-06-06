@@ -32,6 +32,9 @@ const ISSUE_LABELS: Record<IssueType, { icon: string; title: string }> = {
   punctuation_mismatch: { icon: '🟤', title: 'Punctuation Mismatch' },
 }
 
+/** 进度条上报间隔（按 key 计） */
+const PROGRESS_REPORT_EVERY = 100
+
 const ISSUE_ORDER: IssueType[] = [
   'empty_source',
   'placeholder_mismatch',
@@ -70,10 +73,13 @@ export class QualityCheckService {
           if (token.isCancellationRequested) break
 
           const key = allKeys[i]
-          progress.report({
-            message: `[${i + 1}/${allKeys.length}] Checking: ${key}`,
-            increment: 100 / allKeys.length,
-          })
+          // 每个 key 都刷一次进度条在上千 key 时本身就是开销，按批上报
+          if (i % PROGRESS_REPORT_EVERY === 0) {
+            progress.report({
+              message: `[${i + 1}/${allKeys.length}] Checking: ${key}`,
+              increment: (PROGRESS_REPORT_EVERY / allKeys.length) * 100,
+            })
+          }
 
           const sourceValue = this.store.getTranslation(sourceLocale, key)
           if (!sourceValue) {

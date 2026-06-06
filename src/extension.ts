@@ -23,6 +23,7 @@ import { TranslationMatrixPanel } from './providers/matrixPanel'
 import { ProgressDashboard } from './providers/progressDashboard'
 import { KeyEditorPanel } from './providers/keyEditorPanel'
 import { DiffViewPanel } from './providers/diffViewPanel'
+import { invalidateScanCache, scanDocument, findMatchAt } from './scanners/cache'
 import { initI18n, reloadI18n, getCurrentLanguage, t, getLocaleFlag } from './i18n'
 
 let store: TranslationStore | null = null
@@ -58,9 +59,6 @@ export async function activate(context: ExtensionContext) {
 
   store = new TranslationStore(rootPath)
 
-  // 设置上下文条件
-  commands.executeCommand('setContext', 'i18nAllyPro.hasTranslations', true)
-
   treeProvider = new I18nTreeProvider(store)
   const dragAndDropController = new I18nDragAndDropController(store, () => {
     store?.refresh()
@@ -78,6 +76,8 @@ export async function activate(context: ExtensionContext) {
   try {
     await store.init()
     initialized = true
+    // 真的找到了翻译文件才暴露 UI；原来无条件置 true，空项目也会显示活动栏与所有命令
+    commands.executeCommand('setContext', 'i18nAllyPro.hasTranslations', store.getTranslationFiles().length > 0)
     const config = store.projectConfig
     outputChannel.appendLine(`i18n Ally Pro: Initialized successfully`)
     outputChannel.appendLine(`  Framework: ${config.framework}`)
@@ -115,6 +115,7 @@ export async function activate(context: ExtensionContext) {
           registerServices(context)
         }
         await store!.refresh()
+        commands.executeCommand('setContext', 'i18nAllyPro.hasTranslations', store!.getTranslationFiles().length > 0)
         treeProvider!.refresh()
         window.showInformationMessage(t('misc.refreshed'))
       }
@@ -168,6 +169,9 @@ export async function activate(context: ExtensionContext) {
 
 function registerProviders(context: ExtensionContext) {
   if (!store) return
+
+  // 扫描缓存里混着 isKnownKey 的判定结果，翻译数据一变就得丢弃
+  store.on('didChange', () => invalidateScanCache())
 
   const hoverProvider = new I18nHoverProvider(store)
   const definitionProvider = new I18nDefinitionProvider(store)
@@ -244,12 +248,8 @@ function registerServices(context: ExtensionContext) {
     }),
   )
 
-  const localesPaths = store.projectConfig.localesPaths
-  if (localesPaths && localesPaths.length > 0) {
-    const localesDir = path.resolve(store.projectConfig.rootPath, localesPaths[0])
-    const watcher = workspace.createFileSystemWatcher(
-      new RelativePattern(localesDir, '**/*.{json,yaml,yml}')
-    )
+  const localesPaths = store.projectConfig.localesPaths ?? []
+  if (localesPaths.length > 0) {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
     const debouncedRefresh = () => {
       if (debounceTimer) clearTimeout(debounceTimer)
@@ -260,10 +260,23 @@ function registerServices(context: ExtensionContext) {
         progressDashboard?.refresh()
       }, 500)
     }
-    watcher.onDidChange(debouncedRefresh)
-    watcher.onDidCreate(debouncedRefresh)
-    watcher.onDidDelete(debouncedRefresh)
-    context.subscriptions.push(watcher)
+
+    // 每个 locales 目录都要监听，扩展名也要全覆盖：
+    // 原来只监听 localesPaths[0] 下的 json/yaml，多目录项目和 po/properties 项目改了文件没反应
+    for (const localePath of localesPaths) {
+      const localesDir = path.resolve(store.projectConfig.rootPath, localePath)
+      const watcher = workspace.createFileSystemWatcher(
+        new RelativePattern(localesDir, '**/*.{json,yaml,yml,po,properties}')
+      )
+      watcher.onDidChange(debouncedRefresh)
+      watcher.onDidCreate(debouncedRefresh)
+      watcher.onDidDelete(debouncedRefresh)
+      context.subscriptions.push(watcher)
+    }
+
+    context.subscriptions.push({
+      dispose: () => { if (debounceTimer) clearTimeout(debounceTimer) },
+    })
   }
 }
 
@@ -338,21 +351,8 @@ function registerCommands(context: ExtensionContext) {
       const editor = window.activeTextEditor
       if (!editor) return
 
-      const text = editor.document.getText()
       const offset = editor.document.offsetAt(editor.selection.active)
-
-      const { GoScanner } = await import('./scanners/go')
-      const { VueScanner } = await import('./scanners/vue')
-      const { ReactScanner } = await import('./scanners/react')
-      const scanners = [new GoScanner({ isKnownKey: key => store!.hasKey(key) }), new VueScanner(), new ReactScanner()]
-
-      let matchedKey: string | null = null
-      for (const scanner of scanners) {
-        if (!scanner.languageIds.includes(editor.document.languageId)) continue
-        const matches = scanner.scan(text, editor.document.uri.fsPath)
-        const match = matches.find(m => offset >= m.start && offset <= m.end)
-        if (match) { matchedKey = match.key; break }
-      }
+      const matchedKey = findMatchAt(scanDocument(store, editor.document), offset)?.key ?? null
 
       if (!matchedKey) {
         window.showWarningMessage(t('misc.no_key_at_cursor'))
@@ -815,11 +815,7 @@ function registerCommands(context: ExtensionContext) {
       )
       if (confirm !== t('editor.delete')) return
 
-      let deleted = 0
-      for (const key of allKeys) {
-        await refactorService.deleteKey(key)
-        deleted++
-      }
+      const { deleted } = await refactorService.deleteKeys(allKeys)
       window.showInformationMessage(t('editor.deleted_group', groupPrefix, String(deleted)))
       await store.refresh()
       treeProvider?.refresh()
@@ -836,23 +832,8 @@ function registerCommands(context: ExtensionContext) {
         return
       }
 
-      const translations: Record<string, string> = {}
-      for (const key of sorted) {
-        const v = store.getTranslation(locale, key)
-        if (v !== undefined) translations[key] = v
-      }
-
-      const file = store.findFileForKey('', locale)
-      if (file) {
-        const { JsonParser } = await import('./parsers/json')
-        const parser = new JsonParser()
-        const data = file?.parser === 'json'
-          ? store.nestObject(translations)
-          : translations
-        const content = parser.dump(data, true)
-        const fs = await import('fs')
-        fs.writeFileSync(file.filepath, content, 'utf-8')
-      }
+      // 交给 store 用该文件自己的解析器与 key 风格重写，避免把 yaml/po 写成 JSON
+      await store.rewriteLocale(locale)
 
       await store.refresh()
       treeProvider?.refresh()
@@ -1027,4 +1008,6 @@ function registerCommands(context: ExtensionContext) {
 export function deactivate() {
   diagnosticProvider?.dispose()
   translatorService?.dispose()
+  store?.dispose()
+  store = null
 }

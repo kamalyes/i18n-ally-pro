@@ -45,7 +45,7 @@ export class JsonParser implements Parser {
 
   private sortKeys(obj: any): any {
     if (Array.isArray(obj))
-      return obj.map(this.sortKeys)
+      return obj.map(item => this.sortKeys(item))
     if (obj && typeof obj === 'object') {
       const sorted: any = {}
       for (const key of Object.keys(obj).sort())

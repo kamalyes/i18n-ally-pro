@@ -18,6 +18,9 @@ export interface KeyDependencyGraph {
   [key: string]: KeyReference[]
 }
 
+/** 依赖图缓存有效期：扫一遍整个仓库不便宜，短时间内的重复请求直接复用 */
+const GRAPH_CACHE_TTL_MS = 30_000
+
 export class KeyDependencyService {
   private store: TranslationStore
   private scanners: Scanner[]
@@ -25,12 +28,24 @@ export class KeyDependencyService {
     'errors',
   ])
 
+  private graphCache: KeyDependencyGraph | null = null
+  private graphCacheAt = 0
+
   constructor(store: TranslationStore) {
     this.store = store
     this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
+    store.on('didChange', () => this.invalidateCache())
+  }
+
+  invalidateCache() {
+    this.graphCache = null
+    this.graphCacheAt = 0
   }
 
   async buildDependencyGraph(): Promise<KeyDependencyGraph> {
+    if (this.graphCache && Date.now() - this.graphCacheAt < GRAPH_CACHE_TTL_MS)
+      return this.graphCache
+
     const graph: KeyDependencyGraph = {}
     const rootPath = this.store.projectConfig.rootPath
     const allKeySet = new Set(this.store.getAllKeys())
@@ -82,9 +97,12 @@ export class KeyDependencyService {
       })
     }
 
+    this.graphCache = graph
+    this.graphCacheAt = Date.now()
     return graph
   }
 
+  /** 单个 key 的引用位置。走缓存后的图，不会每次都重扫整个仓库。 */
   async getKeyReferences(key: string): Promise<KeyReference[]> {
     const graph = await this.buildDependencyGraph()
     return graph[key] || []

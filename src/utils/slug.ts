@@ -13,11 +13,17 @@ const TRANSLITERATION_MAP: Record<string, string> = {
   'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh',
 }
 
-export function slug(text: string, separator = '-'): string {
-  let result = text
+/** 一次性编译的音译字符类；原来每次调用都要 new 近百个 RegExp */
+const TRANSLITERATION_PATTERN = new RegExp(
+  `[${Object.keys(TRANSLITERATION_MAP).join('')}]`,
+  'g',
+)
 
-  for (const [char, replacement] of Object.entries(TRANSLITERATION_MAP))
-    result = result.replace(new RegExp(char, 'g'), replacement)
+export function slug(text: string, separator = '-'): string {
+  let result = text.replace(
+    TRANSLITERATION_PATTERN,
+    char => TRANSLITERATION_MAP[char] ?? char,
+  )
 
   result = result
     .normalize('NFKD')

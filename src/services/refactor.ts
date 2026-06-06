@@ -1,7 +1,12 @@
 import { window, workspace, WorkspaceEdit, Range, Uri, ProgressLocation } from 'vscode'
 import fs from 'fs'
-import { TranslationStore } from '../core/store'
+import { TranslationStore, TranslationEdit } from '../core/store'
 import { getIgnoreDirs } from '../core/constants'
+
+const CODE_GLOB = '**/*.{go,vue,js,ts,jsx,tsx,html}'
+
+/** 代码里成对引号包起来的完整字面量；i18n key 的引用形态就是这个 */
+const QUOTED_LITERAL = /(['"`])((?:[^'"`\\\n]){2,256})\1/g
 
 export class RefactorService {
   private store: TranslationStore
@@ -26,15 +31,18 @@ export class RefactorService {
     let files = 0
     let replacements = 0
 
+    // 整条重命名一次写盘：原来每个语言都要 set + delete 两次全文件 dump
+    const edits: TranslationEdit[] = []
     for (const locale of this.store.locales) {
       const value = this.store.getTranslation(locale, oldKey)
       if (value !== undefined) {
-        await this.store.setTranslation(locale, newKey, value)
-        await this.store.deleteTranslation(locale, oldKey)
+        edits.push({ locale, key: newKey, value })
+        edits.push({ locale, key: oldKey, value: undefined })
         files++
         replacements++
       }
     }
+    await this.store.setTranslations(edits)
 
     const codeFiles = await this.findCodeFilesUsingKey(oldKey)
     const edit = new WorkspaceEdit()
@@ -43,7 +51,7 @@ export class RefactorService {
       const doc = await workspace.openTextDocument(Uri.file(fileResult.filepath))
       const text = doc.getText()
 
-      const newContent = this.replaceKeyInText(text, oldKey, newKey, doc.languageId)
+      const newContent = this.replaceKeyInText(text, oldKey, newKey)
       if (newContent !== text) {
         const fullRange = new Range(
           doc.positionAt(0),
@@ -62,30 +70,50 @@ export class RefactorService {
     return { files, replacements }
   }
 
-  async deleteKey(key: string): Promise<{ files: number }> {
-    const confirm = await window.showWarningMessage(
-      `Delete key "${key}" from ALL locales and code references?`,
-      { modal: true },
-      'Delete',
-    )
-    if (confirm !== 'Delete') return { files: 0 }
+  /**
+   * 删除一个 key（所有语言）。
+   * confirm=false 时不再弹确认框 —— 批量删除的调用方已经整批确认过一次，
+   * 否则删 50 个 key 会连弹 50 个模态框。
+   */
+  async deleteKey(key: string, options: { confirm?: boolean } = {}): Promise<{ files: number }> {
+    const { confirm = true } = options
 
-    let files = 0
+    if (confirm) {
+      const answer = await window.showWarningMessage(
+        `Delete key "${key}" from ALL locales and code references?`,
+        { modal: true },
+        'Delete',
+      )
+      if (answer !== 'Delete') return { files: 0 }
+    }
 
+    const edits: TranslationEdit[] = []
     for (const locale of this.store.locales) {
-      const value = this.store.getTranslation(locale, key)
-      if (value !== undefined) {
-        await this.store.deleteTranslation(locale, key)
-        files++
+      if (this.store.getTranslation(locale, key) !== undefined)
+        edits.push({ locale, key, value: undefined })
+    }
+
+    await this.store.setTranslations(edits)
+    return { files: edits.length }
+  }
+
+  /** 批量删除：整批只写一次盘、只触发一次刷新 */
+  async deleteKeys(keys: readonly string[]): Promise<{ deleted: number }> {
+    const edits: TranslationEdit[] = []
+    for (const key of keys) {
+      for (const locale of this.store.locales) {
+        if (this.store.getTranslation(locale, key) !== undefined)
+          edits.push({ locale, key, value: undefined })
       }
     }
 
-    return { files }
+    await this.store.setTranslations(edits)
+    return { deleted: keys.length }
   }
 
   async findUnusedKeys(): Promise<string[]> {
     const allKeys = this.store.getAllKeys()
-    const unusedKeys: string[] = []
+    let unusedKeys: string[] = []
 
     await window.withProgress(
       {
@@ -94,43 +122,31 @@ export class RefactorService {
         cancellable: true,
       },
       async (progress, token) => {
-        const rootPath = this.store.projectConfig.rootPath
-        const fg = require('fast-glob')
-        const codeFiles: string[] = await fg('**/*.{go,vue,js,ts,jsx,tsx,html}', {
-          cwd: rootPath,
-          ignore: getIgnoreDirs(),
-          onlyFiles: true,
-          absolute: true,
-        })
+        const codeFiles = await this.listCodeFiles()
 
-        const allCodeContent = new Map<string, string>()
-        for (const file of codeFiles) {
+        // 单遍扫描收集代码里出现过的字符串字面量，再用集合求差。
+        // 原来是「每个 key × 每个文件」做一次 includes，key 和文件一多就是分钟级。
+        const usedLiterals = new Set<string>()
+        for (let i = 0; i < codeFiles.length; i++) {
+          if (token.isCancellationRequested) return
+
+          if (i % 50 === 0) {
+            progress.report({
+              message: `[${i + 1}/${codeFiles.length}] Scanning code files`,
+              increment: (50 / codeFiles.length) * 100,
+            })
+          }
+
           try {
-            allCodeContent.set(file, fs.readFileSync(file, 'utf-8'))
+            const content = fs.readFileSync(codeFiles[i], 'utf-8')
+            QUOTED_LITERAL.lastIndex = 0
+            let match: RegExpExecArray | null
+            while ((match = QUOTED_LITERAL.exec(content)) !== null)
+              usedLiterals.add(match[2])
           } catch { /* skip */ }
         }
 
-        for (let i = 0; i < allKeys.length; i++) {
-          if (token.isCancellationRequested) break
-
-          const key = allKeys[i]
-          progress.report({
-            message: `[${i + 1}/${allKeys.length}] Checking: ${key}`,
-            increment: 100 / allKeys.length,
-          })
-
-          let isUsed = false
-          for (const [, content] of allCodeContent) {
-            if (this.isKeyUsedInContent(key, content)) {
-              isUsed = true
-              break
-            }
-          }
-
-          if (!isUsed) {
-            unusedKeys.push(key)
-          }
-        }
+        unusedKeys = allKeys.filter(key => !usedLiterals.has(key))
       },
     )
 
@@ -152,16 +168,18 @@ export class RefactorService {
 
     if (!selected || selected.length === 0) return { deleted: 0, skipped: unusedKeys.length }
 
-    let deleted = 0
-    for (const item of selected) {
-      await this.deleteKey(item.label)
-      deleted++
-    }
+    const confirm = await window.showWarningMessage(
+      `Delete ${selected.length} unused key(s) from ALL locales?`,
+      { modal: true },
+      'Delete',
+    )
+    if (confirm !== 'Delete') return { deleted: 0, skipped: unusedKeys.length }
 
+    const { deleted } = await this.deleteKeys(selected.map(item => item.label))
     return { deleted, skipped: unusedKeys.length - deleted }
   }
 
-  private replaceKeyInText(text: string, oldKey: string, newKey: string, languageId: string): string {
+  private replaceKeyInText(text: string, oldKey: string, newKey: string): string {
     let result = text
 
     result = result.replace(new RegExp(this.escapeRegex(`"${oldKey}"`), 'g'), `"${newKey}"`)
@@ -181,24 +199,29 @@ export class RefactorService {
     return patterns.some(p => content.includes(p))
   }
 
-  private async findCodeFilesUsingKey(key: string): Promise<{ filepath: string; occurrences: number }[]> {
-    const rootPath = this.store.projectConfig.rootPath
+  private async listCodeFiles(): Promise<string[]> {
     const fg = require('fast-glob')
-    const codeFiles: string[] = await fg('**/*.{go,vue,js,ts,jsx,tsx,html}', {
-      cwd: rootPath,
+    return fg(CODE_GLOB, {
+      cwd: this.store.projectConfig.rootPath,
       ignore: getIgnoreDirs(),
       onlyFiles: true,
       absolute: true,
     })
+  }
 
+  private async findCodeFilesUsingKey(key: string): Promise<{ filepath: string; occurrences: number }[]> {
+    const codeFiles = await this.listCodeFiles()
     const results: { filepath: string; occurrences: number }[] = []
+
+    const doubleQuoted = new RegExp(this.escapeRegex(`"${key}"`), 'g')
+    const singleQuoted = new RegExp(this.escapeRegex(`'${key}'`), 'g')
 
     for (const file of codeFiles) {
       try {
         const content = fs.readFileSync(file, 'utf-8')
         if (this.isKeyUsedInContent(key, content)) {
-          const occurrences = (content.match(new RegExp(this.escapeRegex(`"${key}"`), 'g')) || []).length
-            + (content.match(new RegExp(this.escapeRegex(`'${key}'`), 'g')) || []).length
+          const occurrences = (content.match(doubleQuoted) || []).length
+            + (content.match(singleQuoted) || []).length
           results.push({ filepath: file, occurrences })
         }
       } catch { /* skip */ }

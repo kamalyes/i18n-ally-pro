@@ -51,6 +51,12 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
   private store: TranslationStore
   private listenerAttached = false
   private searchFilter: string = ''
+  /**
+   * 单次刷新内的状态缓存。
+   * 渲染一棵树要重复算「某语言下每个 key 的状态」：根节点的覆盖率、三个状态节点的计数、
+   * 展开时的过滤各算一遍。缓存后一次刷新只算一遍。
+   */
+  private statusCache = new Map<string, Map<string, KeyStatus>>()
 
   constructor(store: TranslationStore) {
     this.store = store
@@ -78,6 +84,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
   }
 
   refresh() {
+    this.statusCache.clear()
     this._onDidChangeTreeData.fire(undefined)
   }
 
@@ -271,10 +278,21 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
   }
 
   private getKeyStatus(locale: string, key: string): KeyStatus {
+    let localeStatuses = this.statusCache.get(locale)
+    if (!localeStatuses) {
+      localeStatuses = new Map<string, KeyStatus>()
+      this.statusCache.set(locale, localeStatuses)
+    }
+
+    const cached = localeStatuses.get(key)
+    if (cached) return cached
+
     const value = this.store.getTranslation(locale, key)
-    if (value === undefined) return 'missing'
-    if (value.trim() === '') return 'empty'
-    return 'translated'
+    const status: KeyStatus = value === undefined
+      ? 'missing'
+      : value.trim() === '' ? 'empty' : 'translated'
+    localeStatuses.set(key, status)
+    return status
   }
 
   private getFilteredKeys(locale: string, status?: KeyStatus, prefix = ''): string[] {
@@ -314,12 +332,12 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     }
 
     const nodes: I18nNode[] = []
+    const directKeySet = new Set(directKeys)
 
     const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
     for (const [group] of sortedGroups) {
       const groupPath = prefix ? `${prefix}.${group}` : group
-      const hasDirectValue = directKeys.includes(groupPath)
-      if (!hasDirectValue) {
+      if (!directKeySet.has(groupPath)) {
         nodes.push(new GroupNode(group, locale, groupPath, status))
       }
     }

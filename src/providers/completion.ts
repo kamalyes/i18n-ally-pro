@@ -27,36 +27,43 @@ export class I18nCompletionProvider implements CompletionItemProvider {
     const sourceLocale = this.store.projectConfig.sourceLanguage
     const displayLocale = this.store.projectConfig.displayLanguage || sourceLocale
 
+    // 替换范围只跟光标位置有关，每个候选项重复算一次纯属浪费
+    const prefix = this.getTriggerPrefix(linePrefix, document.languageId)
+    const replaceRange = prefix
+      ? new Range(position.translate(0, -prefix.length), position)
+      : undefined
+
     return allKeys.map(key => {
       const item = new CompletionItem(key, CompletionItemKind.Value)
       item.detail = this.store.getTranslation(displayLocale, key) || this.store.getTranslation(sourceLocale, key) || ''
-
-      const doc = new MarkdownString()
-      doc.isTrusted = true
-      doc.appendMarkdown(`### 🌐 \`${key}\`\n\n`)
-      doc.appendMarkdown('| | Locale | Value |\n')
-      doc.appendMarkdown('|:---:|:---:|:---|\n')
-      for (const locale of this.store.locales) {
-        const flag = getLocaleFlag(locale)
-        const val = this.store.getTranslation(locale, key)
-        doc.appendMarkdown(`| ${flag} | ${locale} | ${val !== undefined ? val : '—'} |\n`)
-      }
-      item.documentation = doc
-
-      const prefix = this.getTriggerPrefix(linePrefix, document.languageId)
-      if (prefix) {
-        const replaceRange = new Range(
-          position.translate(0, -prefix.length),
-          position,
-        )
-        item.range = replaceRange
-      }
-
+      if (replaceRange) item.range = replaceRange
       item.insertText = new SnippetString(key)
-
       item.sortText = this.getSortText(key)
+      // documentation 是每个语言一行的表格，几千个 key 全量构建会让每次按键都卡顿；
+      // 交给 resolveCompletionItem 在候选项真正被选中/预览时再建
       return item
     })
+  }
+
+  resolveCompletionItem(item: CompletionItem, _token: CancellationToken): CompletionItem {
+    const key = typeof item.label === 'string' ? item.label : item.label.label
+    if (!item.documentation)
+      item.documentation = this.buildDocumentation(key)
+    return item
+  }
+
+  private buildDocumentation(key: string): MarkdownString {
+    const doc = new MarkdownString()
+    doc.isTrusted = true
+    doc.appendMarkdown(`### 🌐 \`${key}\`\n\n`)
+    doc.appendMarkdown('| | Locale | Value |\n')
+    doc.appendMarkdown('|:---:|:---:|:---|\n')
+    for (const locale of this.store.locales) {
+      const flag = getLocaleFlag(locale)
+      const val = this.store.getTranslation(locale, key)
+      doc.appendMarkdown(`| ${flag} | ${locale} | ${val !== undefined ? val : '—'} |\n`)
+    }
+    return doc
   }
 
   private isInI18nContext(linePrefix: string, languageId: string): boolean {

@@ -22,6 +22,25 @@ import { PoParser } from '../parsers/po'
 import { PropertiesParser } from '../parsers/properties'
 import { Parser } from './types'
 
+/**
+ * didChange 合流窗口。
+ * 批量写入（翻译、同步错误码）过去会逐条触发树视图 / 状态栏 / 仪表盘全量重算，
+ * 合流后一批写入只重算一次。
+ */
+const DID_CHANGE_DEBOUNCE_MS = 50
+
+export interface TranslationEdit {
+  locale: string
+  key: string
+  /** undefined 表示删除 */
+  value: string | undefined
+}
+
+/** keyOwner 的复合键；\u0000 不会出现在 locale 或 key 里 */
+function ownerId(locale: string, key: string): string {
+  return `${locale}\u0000${key}`
+}
+
 export class TranslationStore extends EventEmitter {
   private detector: ProjectDetector
   private config: ProjectConfig | null = null
@@ -29,6 +48,25 @@ export class TranslationStore extends EventEmitter {
   private _historyService: any = null
   private files: TranslationFile[] = []
   private parserMap: Record<string, Parser> = {}
+
+  /** filepath -> 文件条目 */
+  private fileByPath = new Map<string, TranslationFile>()
+  /** locale -> 该语言的全部文件（按发现顺序） */
+  private filesByLocale = new Map<string, TranslationFile[]>()
+  /** ownerId(locale, key) -> key 所属文件的 filepath，决定写回时落到哪个文件 */
+  private keyOwner = new Map<string, string>()
+  /** filepath -> 该文件拥有的 key，写回时只 dump 这些 key */
+  private fileKeys = new Map<string, Set<string>>()
+  /** locale -> 原文件里是数组的路径，写回时重建为数组而不是对象 */
+  private arrayPaths = new Map<string, Set<string>>()
+
+  private localesCache: string[] | null = null
+  private allKeysCache: string[] | null = null
+  private keySetCache: Set<string> | null = null
+  private suffixIndexCache: Map<string, string[]> | null = null
+  private matchLocaleCache = new Map<string, string | null>()
+
+  private didChangeTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(rootPath: string) {
     super()
@@ -44,7 +82,7 @@ export class TranslationStore extends EventEmitter {
   async init() {
     this.config = await this.detector.detect()
     await this.loadAll()
-    this.emit('didChange')
+    this.emitDidChange(true)
   }
 
   get projectConfig(): ProjectConfig {
@@ -64,7 +102,9 @@ export class TranslationStore extends EventEmitter {
   }
 
   get locales(): string[] {
-    return Object.keys(this.translations)
+    if (!this.localesCache)
+      this.localesCache = Object.keys(this.translations)
+    return this.localesCache
   }
 
   getTranslation(locale: string, key: string): string | undefined {
@@ -125,6 +165,15 @@ export class TranslationStore extends EventEmitter {
   /** 将配置语言解析为仓库中实际存在的 locale id（如 en ↔ en-US 互认）。 */
   matchLocale(locale: string): string | null {
     if (!locale) return null
+    const cached = this.matchLocaleCache.get(locale)
+    if (cached !== undefined) return cached
+
+    const resolved = this.resolveLocaleId(locale)
+    this.matchLocaleCache.set(locale, resolved)
+    return resolved
+  }
+
+  private resolveLocaleId(locale: string): string | null {
     if (this.translations[locale]) return locale
 
     const group = getLocaleExclusiveGroup(locale)
@@ -206,13 +255,33 @@ export class TranslationStore extends EventEmitter {
     return ordered
   }
 
+  /**
+   * key 本身 + 以 `.key` 结尾的完整 key（如 `menu.save` 是 `save` 的候选）。
+   * 走后缀索引，避免每次查询都线性遍历全部 key。
+   */
   private expandKeyCandidates(key: string): string[] {
-    const candidates = new Set<string>([key])
-    for (const storedKey of this.getAllKeys()) {
-      if (storedKey === key) continue
-      if (storedKey.endsWith(`.${key}`)) candidates.add(storedKey)
+    const aliases = this.getSuffixIndex().get(key)
+    return aliases ? [key, ...aliases] : [key]
+  }
+
+  /** 后缀（去掉首段后的剩余路径）-> 以该后缀结尾的完整 key */
+  private getSuffixIndex(): Map<string, string[]> {
+    if (this.suffixIndexCache) return this.suffixIndexCache
+
+    const index = new Map<string, string[]>()
+    for (const key of this.getAllKeys()) {
+      let dot = key.indexOf('.')
+      while (dot !== -1) {
+        const suffix = key.slice(dot + 1)
+        const list = index.get(suffix)
+        if (list) list.push(key)
+        else index.set(suffix, [key])
+        dot = key.indexOf('.', dot + 1)
+      }
     }
-    return Array.from(candidates)
+
+    this.suffixIndexCache = index
+    return index
   }
 
   getAllTranslations(): TranslationMap {
@@ -224,19 +293,25 @@ export class TranslationStore extends EventEmitter {
   }
 
   getAllKeys(): string[] {
-    const keys = new Set<string>()
-    for (const localeData of Object.values(this.translations))
-      for (const key of Object.keys(localeData))
-        keys.add(key)
-    return Array.from(keys)
+    if (!this.allKeysCache)
+      this.allKeysCache = Array.from(this.getKeySet())
+    return this.allKeysCache
   }
 
   /** key 是否在任一语言里存在；供 Go 扫描器的兜底模式做白名单判定 */
   hasKey(key: string): boolean {
-    for (const localeData of Object.values(this.translations)) {
-      if (Object.prototype.hasOwnProperty.call(localeData, key)) return true
+    return this.getKeySet().has(key)
+  }
+
+  private getKeySet(): Set<string> {
+    if (!this.keySetCache) {
+      const keys = new Set<string>()
+      for (const localeData of Object.values(this.translations))
+        for (const key of Object.keys(localeData))
+          keys.add(key)
+      this.keySetCache = keys
     }
-    return false
+    return this.keySetCache
   }
 
   getKeysForLocale(locale: string): string[] {
@@ -247,42 +322,105 @@ export class TranslationStore extends EventEmitter {
     this.detector.invalidateCache()
     this.config = await this.detector.detect()
     await this.loadAll()
-    this.emit('didChange')
+    this.emitDidChange(true)
   }
 
   async deleteTranslation(locale: string, key: string) {
-    if (!this.translations[locale]) return
-
-    const oldValue = this.translations[locale][key]
-    delete this.translations[locale][key]
-
-    if (this._historyService) {
-      this._historyService.record('delete', locale, key, oldValue, undefined)
-    }
-
-    const file = this.files.find(f => f.locale === locale)
-    if (file) {
-      await this.writeToFile(file)
-      this.emit('didChange')
-    }
+    await this.applyEdits([{ locale, key, value: undefined }])
   }
 
   async setTranslation(locale: string, key: string, value: string) {
-    const oldValue = this.translations[locale]?.[key]
+    await this.applyEdits([{ locale, key, value }])
+  }
 
-    if (!this.translations[locale])
-      this.translations[locale] = {}
-    this.translations[locale][key] = value
+  /**
+   * 批量写入 / 删除：按文件聚合后每个文件只写一次、只触发一次 didChange。
+   * 逐条 setTranslation 会把整份语言文件重复 dump N 次，批量场景请用这个入口。
+   */
+  async setTranslations(edits: readonly TranslationEdit[]) {
+    await this.applyEdits(edits)
+  }
 
-    if (this._historyService) {
-      this._historyService.record('set', locale, key, oldValue, value)
+  private async applyEdits(edits: readonly TranslationEdit[]) {
+    if (edits.length === 0) return
+
+    const touchedFiles = new Map<string, TranslationFile>()
+    let changed = false
+
+    for (const { locale, key, value } of edits) {
+      if (value === undefined) {
+        const localeData = this.translations[locale]
+        if (!localeData || !(key in localeData)) continue
+
+        const oldValue = localeData[key]
+        delete localeData[key]
+        this.invalidateKeyIndexes()
+        changed = true
+
+        this._historyService?.record('delete', locale, key, oldValue, undefined)
+
+        const owner = this.keyOwner.get(ownerId(locale, key))
+        this.keyOwner.delete(ownerId(locale, key))
+        if (owner) {
+          this.fileKeys.get(owner)?.delete(key)
+          const file = this.fileByPath.get(owner)
+          if (file) touchedFiles.set(file.filepath, file)
+        }
+        continue
+      }
+
+      const oldValue = this.translations[locale]?.[key]
+      if (!this.translations[locale]) {
+        this.translations[locale] = {}
+        this.invalidateLocaleIndexes()
+      }
+      this.translations[locale][key] = value
+      if (oldValue === undefined) this.invalidateKeyIndexes()
+      changed = true
+
+      this._historyService?.record('set', locale, key, oldValue, value)
+
+      // 语言还没有文件时先建一个，否则写入只存在于内存里，刷新即丢失
+      const file = this.resolveOwnerFile(locale, key) ?? await this.ensureLocaleFile(locale)
+      if (file) {
+        this.assignOwner(locale, key, file)
+        touchedFiles.set(file.filepath, file)
+      }
     }
 
-    const file = this.files.find(f => f.locale === locale)
-    if (file) {
-      await this.writeToFile(file)
-      this.emit('didChange')
+    for (const file of touchedFiles.values())
+      this.writeToFile(file)
+
+    if (changed) this.emitDidChange()
+  }
+
+  /** key 已归属的文件；没有归属时回退到该语言的首个文件 */
+  private resolveOwnerFile(locale: string, key: string): TranslationFile | undefined {
+    const owner = this.keyOwner.get(ownerId(locale, key))
+    if (owner) {
+      const file = this.fileByPath.get(owner)
+      if (file) return file
     }
+    return this.filesByLocale.get(locale)?.[0]
+  }
+
+  private assignOwner(locale: string, key: string, file: TranslationFile) {
+    this.keyOwner.set(ownerId(locale, key), file.filepath)
+    let keys = this.fileKeys.get(file.filepath)
+    if (!keys) {
+      keys = new Set<string>()
+      this.fileKeys.set(file.filepath, keys)
+    }
+    keys.add(key)
+  }
+
+  private registerFile(file: TranslationFile) {
+    this.fileByPath.set(file.filepath, file)
+    const list = this.filesByLocale.get(file.locale)
+    if (list) list.push(file)
+    else this.filesByLocale.set(file.locale, [file])
+    if (!this.fileKeys.has(file.filepath))
+      this.fileKeys.set(file.filepath, new Set<string>())
   }
 
   setHistoryService(service: any) {
@@ -322,39 +460,67 @@ export class TranslationStore extends EventEmitter {
     return diagnostics
   }
 
-  flattenObject(obj: Record<string, any>, prefix = ''): Record<string, string> {
+  /**
+   * 展平为扁平 key。数组展开成 `key.0` / `key.1` 这样的索引 key，
+   * 并把数组路径记录到 arrayPaths，写回时才能重建成数组而不是对象。
+   * （旧实现用 String(value) 把 ["a","b"] 压成 "a,b"，会直接写坏文件。）
+   */
+  flattenObject(obj: Record<string, any>, prefix = '', arrayPaths?: Set<string>): Record<string, string> {
     const result: Record<string, string> = {}
-    for (const [key, value] of Object.entries(obj)) {
-      const fullKey = prefix ? `${prefix}.${key}` : key
-      if (value && typeof value === 'object' && !Array.isArray(value))
-        Object.assign(result, this.flattenObject(value, fullKey))
-      else
-        result[fullKey] = String(value ?? '')
+
+    const walk = (value: any, keyPath: string) => {
+      if (Array.isArray(value)) {
+        // 空数组没有索引 key 可落地，退化成空字符串（与历史行为一致）
+        if (value.length === 0) {
+          result[keyPath] = ''
+          return
+        }
+        if (keyPath) arrayPaths?.add(keyPath)
+        value.forEach((item, i) => walk(item, keyPath ? `${keyPath}.${i}` : String(i)))
+        return
+      }
+
+      if (this.isPlainObject(value)) {
+        for (const [key, child] of Object.entries(value))
+          walk(child, keyPath ? `${keyPath}.${key}` : key)
+        return
+      }
+
+      result[keyPath] = String(value ?? '')
     }
+
+    walk(obj, prefix)
     return result
   }
 
-  nestObject(flat: Record<string, string>): Record<string, any> {
+  /** 扁平 key 还原为嵌套结构；arrayPaths 中的路径还原为数组。 */
+  nestObject(flat: Record<string, string>, arrayPaths?: ReadonlySet<string>): Record<string, any> {
     const result: Record<string, any> = {}
+
     for (const [key, value] of Object.entries(flat)) {
       const parts = key.split('.')
-      let current = result
+      let current: any = result
+      let currentPath = ''
+
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i]
+        currentPath = currentPath ? `${currentPath}.${part}` : part
         const existing = current[part]
         if (existing === undefined) {
-          current[part] = {}
-        } else if (!this.isPlainObject(existing)) {
+          current[part] = arrayPaths?.has(currentPath) ? [] : {}
+        } else if (!this.isContainer(existing)) {
           throw new Error(`Cannot nest "${key}" because "${parts.slice(0, i + 1).join('.')}" already has a value`)
         }
         current = current[part]
       }
+
       const leaf = parts[parts.length - 1]
-      if (this.isPlainObject(current[leaf])) {
+      if (this.isContainer(current[leaf])) {
         throw new Error(`Cannot nest "${key}" because it is already used as a group`)
       }
       current[leaf] = value
     }
+
     return result
   }
 
@@ -368,8 +534,9 @@ export class TranslationStore extends EventEmitter {
 
       try {
         const content = fs.readFileSync(file.filepath, 'utf-8')
-        const flat = this.sortObjectKeys(this.flattenObject(parser.parse(content)))
-        const data = this.shapeDataForParser(file.parser, flat, keyStyle)
+        const arrayPaths = new Set<string>()
+        const flat = this.sortObjectKeys(this.flattenObject(parser.parse(content), '', arrayPaths))
+        const data = this.shapeDataForParser(file.parser, flat, keyStyle, arrayPaths)
         const next = parser.dump(data, true)
 
         if (next === content) {
@@ -386,27 +553,51 @@ export class TranslationStore extends EventEmitter {
     }
 
     await this.loadAll()
-    this.emit('didChange')
+    this.emitDidChange(true)
     return result
   }
 
   private async loadAll() {
     this.translations = {}
+    this.keyOwner.clear()
+    this.fileKeys.clear()
+    this.fileByPath.clear()
+    this.filesByLocale.clear()
+    this.arrayPaths.clear()
+    this.invalidateLocaleIndexes()
+
     this.files = await this.detector.findTranslationFiles()
 
     for (const file of this.files) {
+      this.registerFile(file)
+
       try {
         const content = fs.readFileSync(file.filepath, 'utf-8')
         const parser = this.parserMap[file.parser]
         if (!parser) continue
 
+        let localeArrayPaths = this.arrayPaths.get(file.locale)
+        if (!localeArrayPaths) {
+          localeArrayPaths = new Set<string>()
+          this.arrayPaths.set(file.locale, localeArrayPaths)
+        }
+
         const raw = parser.parse(content)
-        const flat = this.flattenObject(raw)
+        const flat = this.flattenObject(raw, '', localeArrayPaths)
 
         if (!this.translations[file.locale])
           this.translations[file.locale] = {}
 
-        Object.assign(this.translations[file.locale], flat)
+        const localeData = this.translations[file.locale]
+        const fileKeys = this.fileKeys.get(file.filepath)!
+        for (const [key, value] of Object.entries(flat)) {
+          localeData[key] = value
+          // 同一语言多文件时，先出现的文件保留归属，避免 key 被后续文件抢走后重复写两处
+          if (!this.keyOwner.has(ownerId(file.locale, key))) {
+            this.keyOwner.set(ownerId(file.locale, key), file.filepath)
+            fileKeys.add(key)
+          }
+        }
       }
       catch (err) {
         console.error(`Failed to load ${file.filepath}:`, err)
@@ -414,29 +605,53 @@ export class TranslationStore extends EventEmitter {
     }
   }
 
-  private async writeToFile(file: TranslationFile) {
+  private writeToFile(file: TranslationFile) {
     const parser = this.parserMap[file.parser]
     if (!parser) return
 
     const localeData = this.translations[file.locale] || {}
-    const sortedData = this.sortObjectKeys(localeData)
-    const data = this.shapeDataForParser(file.parser, sortedData, this.getWriteKeyStyle(file.parser))
+    const ownedKeys = this.fileKeys.get(file.filepath)
+
+    // 一个语言可能被拆成多个文件（namespace），只写回本文件拥有的 key，
+    // 否则每个文件都会被写成整份语言的副本。
+    const scoped: Record<string, string> = {}
+    if (ownedKeys) {
+      for (const key of ownedKeys) {
+        const value = localeData[key]
+        if (value !== undefined) scoped[key] = value
+      }
+    }
+
+    const sortedData = this.sortObjectKeys(scoped)
+    const data = this.shapeDataForParser(
+      file.parser,
+      sortedData,
+      this.getWriteKeyStyle(file.parser),
+      this.arrayPaths.get(file.locale),
+    )
 
     const content = parser.dump(data, true)
     fs.writeFileSync(file.filepath, content, 'utf-8')
   }
 
-  private shapeDataForParser(parserId: ParserId, data: Record<string, string>, keyStyle: KeyStyle): Record<string, any> {
+  private shapeDataForParser(
+    parserId: ParserId,
+    data: Record<string, string>,
+    keyStyle: KeyStyle,
+    arrayPaths?: ReadonlySet<string>,
+  ): Record<string, any> {
     if (this.supportsNestedOutput(parserId) && keyStyle === 'nested')
-      return this.nestObject(data)
+      return this.nestObject(data, arrayPaths)
     return data
   }
 
+  /**
+   * 写回时的 key 风格。沿用项目探测/配置出来的风格 —— 以前 json 一律按 nested 写，
+   * 会把本来是扁平 key 的文件（{"a.b": "x"}）在第一次编辑时整体重排成嵌套结构。
+   */
   private getWriteKeyStyle(parserId: ParserId): KeyStyle {
-    if (parserId === 'json')
-      return 'nested'
     if (this.supportsNestedOutput(parserId))
-      return this.config?.keystyle || 'flat'
+      return this.projectConfig.keystyle
     return 'flat'
   }
 
@@ -448,6 +663,10 @@ export class TranslationStore extends EventEmitter {
     return !!value && typeof value === 'object' && !Array.isArray(value)
   }
 
+  private isContainer(value: unknown): boolean {
+    return !!value && typeof value === 'object'
+  }
+
   private sortObjectKeys(obj: Record<string, string>): Record<string, string> {
     const sorted: Record<string, string> = {}
     for (const key of Object.keys(obj).sort()) {
@@ -456,53 +675,108 @@ export class TranslationStore extends EventEmitter {
     return sorted
   }
 
+  /** locale 集合变化（新增语言）时失效 */
+  private invalidateLocaleIndexes() {
+    this.localesCache = null
+    this.matchLocaleCache.clear()
+    this.invalidateKeyIndexes()
+  }
+
+  /** key 集合变化时失效 */
+  private invalidateKeyIndexes() {
+    this.allKeysCache = null
+    this.keySetCache = null
+    this.suffixIndexCache = null
+  }
+
+  private emitDidChange(immediate = false) {
+    if (this.didChangeTimer) {
+      clearTimeout(this.didChangeTimer)
+      this.didChangeTimer = null
+    }
+
+    if (immediate) {
+      this.emit('didChange')
+      return
+    }
+
+    this.didChangeTimer = setTimeout(() => {
+      this.didChangeTimer = null
+      this.emit('didChange')
+    }, DID_CHANGE_DEBOUNCE_MS)
+  }
+
+  dispose() {
+    if (this.didChangeTimer) {
+      clearTimeout(this.didChangeTimer)
+      this.didChangeTimer = null
+    }
+    this.removeAllListeners()
+  }
+
   async cloneLocale(sourceLocale: string, targetLocale: string, overwrite: boolean = false): Promise<{ cloned: number; skipped: number }> {
     const sourceData = this.translations[sourceLocale]
     if (!sourceData) return { cloned: 0, skipped: 0 }
 
-    let cloned = 0
+    const edits: TranslationEdit[] = []
     let skipped = 0
-
-    if (!this.translations[targetLocale])
-      this.translations[targetLocale] = {}
 
     for (const [key, value] of Object.entries(sourceData)) {
       if (!value && value !== '') continue
-      const existing = this.translations[targetLocale][key]
+      const existing = this.translations[targetLocale]?.[key]
       if (existing !== undefined && existing !== '' && !overwrite) {
         skipped++
         continue
       }
-      this.translations[targetLocale][key] = value
-      cloned++
+      edits.push({ locale: targetLocale, key, value })
     }
 
-    let file = this.files.find(f => f.locale === targetLocale)
-    if (!file) {
-      const sourceFile = this.files.find(f => f.locale === sourceLocale)
-      if (sourceFile) {
-        const dir = path.dirname(sourceFile.filepath)
-        const ext = path.extname(sourceFile.filepath)
-        const newFilePath = path.join(dir, `${targetLocale}${ext}`)
-        const nestedData = sourceFile.parser === 'json'
-          ? this.nestObject(this.sortObjectKeys(this.translations[targetLocale]))
-          : this.sortObjectKeys(this.translations[targetLocale])
-        fs.writeFileSync(newFilePath, JSON.stringify(nestedData, null, 2) + '\n', 'utf-8')
-        this.files.push({ locale: targetLocale, filepath: newFilePath, parser: sourceFile.parser })
-        this.emit('didChange')
-        return { cloned, skipped }
-      }
-      return { cloned, skipped }
+    if (edits.length === 0) {
+      this.emitDidChange()
+      return { cloned: 0, skipped }
     }
 
-    await this.writeToFile(file)
-    this.emit('didChange')
+    // 目标语言还没有文件时，照源文件的目录与解析器建一个
+    if (!this.filesByLocale.get(targetLocale)?.length) {
+      const sourceFile = this.filesByLocale.get(sourceLocale)?.[0]
+      const created = await this.ensureLocaleFile(
+        targetLocale,
+        sourceFile
+          ? path.join(path.dirname(sourceFile.filepath), `${targetLocale}${path.extname(sourceFile.filepath)}`)
+          : undefined,
+        sourceFile?.parser,
+      )
+      if (!created) return { cloned: 0, skipped }
+    }
 
-    return { cloned, skipped }
+    await this.applyEdits(edits)
+    return { cloned: edits.length, skipped }
   }
 
+  /**
+   * 按当前的排序 / key 风格 / 解析器重新写出某个语言的全部文件。
+   * 调用方不用自己拼 JSON，也不会把 yaml 写成 JSON。
+   */
+  async rewriteLocale(locale: string): Promise<number> {
+    const matched = this.matchLocale(locale) ?? locale
+    const files = this.filesByLocale.get(matched) ?? []
+    for (const file of files)
+      this.writeToFile(file)
+    if (files.length > 0) this.emitDidChange()
+    return files.length
+  }
+
+  /** key 在该语言里实际落在哪个文件；未知 key 回退到该语言的首个文件。 */
   findFileForKey(key: string, locale: string): TranslationFile | undefined {
-    return this.files.find(f => f.locale === locale)
+    const matched = this.matchLocale(locale) ?? locale
+    if (key) {
+      const owner = this.keyOwner.get(ownerId(matched, key))
+      if (owner) {
+        const file = this.fileByPath.get(owner)
+        if (file) return file
+      }
+    }
+    return this.filesByLocale.get(matched)?.[0]
   }
 
   /**
@@ -510,70 +784,58 @@ export class TranslationStore extends EventEmitter {
    * Returns the TranslationFile entry (existing or newly created).
    */
   async ensureLocaleFile(locale: string, preferredFilepath?: string, preferredParser?: ParserId): Promise<TranslationFile | null> {
-    const existing = this.files.find(f => f.locale === locale)
+    const existing = this.filesByLocale.get(locale)?.[0]
     if (existing) return existing
 
-    // If preferredFilepath provided, use it directly
-    if (preferredFilepath) {
-      const parser: ParserId = preferredParser || 'json'
-      const dir = path.dirname(preferredFilepath)
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true })
-      }
-      // Initialize empty file
-      const initData = parser === 'json' ? '{}' : ''
-      if (!fs.existsSync(preferredFilepath)) {
-        fs.writeFileSync(preferredFilepath, initData, 'utf-8')
-      }
-      const file: TranslationFile = { locale, filepath: preferredFilepath, parser }
-      this.files.push(file)
-      return file
+    const target = preferredFilepath
+      ? { filepath: preferredFilepath, parser: preferredParser || 'json' as ParserId }
+      : this.pickNewLocaleFilePath(locale)
+
+    if (!target) return null
+
+    const dir = path.dirname(target.filepath)
+    if (!fs.existsSync(dir))
+      fs.mkdirSync(dir, { recursive: true })
+
+    if (!fs.existsSync(target.filepath)) {
+      const parser = this.parserMap[target.parser]
+      // 用解析器生成空文件，而不是硬编码 '{}' —— yaml/po/properties 的空文件形态不同
+      fs.writeFileSync(target.filepath, parser ? parser.dump({}) : '', 'utf-8')
     }
 
-    // Try to find a reference file from the same project
+    const file: TranslationFile = { locale, filepath: target.filepath, parser: target.parser }
+    this.files.push(file)
+    this.registerFile(file)
+    if (!this.translations[locale]) {
+      this.translations[locale] = {}
+      this.invalidateLocaleIndexes()
+    }
+    return file
+  }
+
+  private pickNewLocaleFilePath(locale: string): { filepath: string; parser: ParserId } | null {
     const refFile = this.files[0]
     if (refFile) {
-      const dir = path.dirname(refFile.filepath)
-      const ext = path.extname(refFile.filepath)
-      const newFilePath = path.join(dir, `${locale}${ext}`)
-      const parser = refFile.parser
-
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true })
+      return {
+        filepath: path.join(path.dirname(refFile.filepath), `${locale}${path.extname(refFile.filepath)}`),
+        parser: refFile.parser,
       }
-      const initData = parser === 'json' ? '{}' : ''
-      if (!fs.existsSync(newFilePath)) {
-        fs.writeFileSync(newFilePath, initData, 'utf-8')
-      }
-
-      const file: TranslationFile = { locale, filepath: newFilePath, parser }
-      this.files.push(file)
-      return file
     }
 
-    // No reference files at all - use project's localesPaths to create the file
     const config = this.projectConfig
     const localesPaths = config.localesPaths
     if (localesPaths.length > 0) {
-      const localeDir = path.join(config.rootPath, localesPaths[0])
-      if (!fs.existsSync(localeDir)) {
-        fs.mkdirSync(localeDir, { recursive: true })
+      return {
+        filepath: path.join(config.rootPath, localesPaths[0], `${locale}.json`),
+        parser: 'json',
       }
-      const newFilePath = path.join(localeDir, `${locale}.json`)
-      const initData = '{}'
-      if (!fs.existsSync(newFilePath)) {
-        fs.writeFileSync(newFilePath, initData, 'utf-8')
-      }
-      const file: TranslationFile = { locale, filepath: newFilePath, parser: 'json' }
-      this.files.push(file)
-      return file
     }
 
     return null
   }
 
   findKeyPosition(filepath: string, key: string): { line: number; column: number } | null {
-    const file = this.files.find(f => f.filepath === filepath)
+    const file = this.fileByPath.get(filepath)
     if (!file) return null
 
     const parser = this.parserMap[file.parser]
@@ -581,7 +843,9 @@ export class TranslationStore extends EventEmitter {
 
     try {
       const content = fs.readFileSync(filepath, 'utf-8')
-      const keyStyle: KeyStyle = file.parser === 'json' ? 'nested' : (this.config?.keystyle || 'flat')
+      const keyStyle: KeyStyle = this.supportsNestedOutput(file.parser)
+        ? this.projectConfig.keystyle
+        : 'flat'
       return parser.navigateToKey(content, key, keyStyle)
     }
     catch {

@@ -4,38 +4,24 @@ import {
   Position as VPosition, Range, Selection,
 } from 'vscode'
 import { TranslationStore } from '../core/store'
-import { Scanner } from '../core/types'
-import { GoScanner } from '../scanners/go'
-import { VueScanner } from '../scanners/vue'
-import { ReactScanner } from '../scanners/react'
+import { findMatchAt, scanDocument } from '../scanners/cache'
 import { getLocaleFlag, getLocaleName } from '../i18n'
 
 export class I18nHoverProvider implements HoverProvider {
   private store: TranslationStore
-  private scanners: Scanner[]
 
   constructor(store: TranslationStore) {
     this.store = store
-    this.scanners = [new GoScanner({ isKnownKey: key => store.hasKey(key) }), new VueScanner(), new ReactScanner()]
   }
 
   async provideHover(document: TextDocument, position: Position, _token: CancellationToken): Promise<Hover | undefined> {
-    const text = document.getText()
     const offset = document.offsetAt(position)
 
-    for (const scanner of this.scanners) {
-      if (!scanner.languageIds.includes(document.languageId)) continue
-
-      const matches = scanner.scan(text, document.uri.fsPath)
-      const match = matches.find(m => offset >= m.start && offset <= m.end)
-
-      if (match) {
-        return this.createHover(match.key)
-      }
-    }
+    const match = findMatchAt(scanDocument(this.store, document), offset)
+    if (match) return this.createHover(match.key)
 
     if (document.languageId === 'json' || document.languageId === 'jsonc') {
-      const jsonHover = this.provideJsonHover(document, position, text, offset)
+      const jsonHover = this.provideJsonHover(document, position, document.getText(), offset)
       if (jsonHover) return jsonHover
     }
 

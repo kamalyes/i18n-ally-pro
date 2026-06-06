@@ -36,13 +36,16 @@ export class StatusBarService {
       const locales = this.store.locales
       const sourceLocale = this.store.projectConfig.sourceLanguage
 
-      let totalSlots = 0
+      // 直接读整张翻译表，避免 locales × keys 次 getTranslation 调用
+      const translations = this.store.getAllTranslations()
+      const totalSlots = locales.length * allKeys.length
       let filledSlots = 0
 
       for (const locale of locales) {
+        const localeData = translations[locale]
+        if (!localeData) continue
         for (const key of allKeys) {
-          totalSlots++
-          const val = this.store.getTranslation(locale, key)
+          const val = localeData[key]
           if (val !== undefined && val !== '') filledSlots++
         }
       }

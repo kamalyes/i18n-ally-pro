@@ -1,7 +1,7 @@
 import { window, workspace, Uri, ProgressLocation, Position, Range, Selection, ViewColumn } from 'vscode'
 import fs from 'fs'
 import path from 'path'
-import { TranslationStore } from '../core/store'
+import { TranslationStore, TranslationEdit } from '../core/store'
 import { getIgnoreDirs, DEFAULT_CONCURRENCY } from '../core/constants'
 import { Concurrency } from '../utils/concurrency'
 
@@ -23,56 +23,66 @@ export class ErrorCodeSyncService {
     this.store = store
   }
 
-  async syncFromGoFile(goFilePath: string): Promise<{ added: number; skipped: number; errors: number }> {
-    let added = 0
-    let skipped = 0
-    let errors = 0
-
+  async syncFromGoFile(
+    goFilePath: string,
+    options: { silent?: boolean } = {},
+  ): Promise<{ added: number; skipped: number; errors: number }> {
     const content = fs.readFileSync(goFilePath, 'utf-8')
     const constMap = this.parseGoConsts(content)
 
     if (constMap.size === 0) {
-      window.showWarningMessage('No i18n constants found in this Go file')
+      if (!options.silent)
+        window.showWarningMessage('No i18n constants found in this Go file')
       return { added: 0, skipped: 0, errors: 0 }
     }
 
+    if (options.silent)
+      return this.applySync(constMap)
+
+    let result = { added: 0, skipped: 0, errors: 0 }
     await window.withProgress(
       {
         location: ProgressLocation.Notification,
         title: 'i18n Pro: Syncing error codes',
-        cancellable: true,
+        cancellable: false,
       },
       async (progress) => {
-        let current = 0
-        const total = constMap.size * this.store.locales.length
-
-        for (const [constName, keyValue] of constMap) {
-          for (const locale of this.store.locales) {
-            current++
-            progress.report({
-              message: `[${current}/${total}] ${constName} → ${locale}`,
-              increment: 100 / total,
-            })
-
-            const existing = this.store.getTranslation(locale, keyValue)
-            if (existing !== undefined && existing !== '') {
-              skipped++
-              continue
-            }
-
-            try {
-              await this.store.setTranslation(locale, keyValue, '')
-              added++
-            }
-            catch {
-              errors++
-            }
-          }
-        }
+        progress.report({ message: `Syncing ${constMap.size} keys × ${this.store.locales.length} locales` })
+        result = await this.applySync(constMap)
       },
     )
 
-    return { added, skipped, errors }
+    return result
+  }
+
+  /** 把 Go 常量里的 key 以空值补齐到所有语言；整批只写一次盘 */
+  private async applySync(constMap: Map<string, string>): Promise<{ added: number; skipped: number; errors: number }> {
+    const edits: TranslationEdit[] = []
+    let skipped = 0
+
+    for (const keyValue of constMap.values()) {
+      for (const locale of this.store.locales) {
+        const existing = this.store.getTranslation(locale, keyValue)
+        if (existing !== undefined && existing !== '') {
+          skipped++
+          continue
+        }
+        if (existing === '') {
+          // 已经是空值，无需重复写
+          skipped++
+          continue
+        }
+        edits.push({ locale, key: keyValue, value: '' })
+      }
+    }
+
+    try {
+      await this.store.setTranslations(edits)
+      return { added: edits.length, skipped, errors: 0 }
+    }
+    catch {
+      return { added: 0, skipped, errors: edits.length }
+    }
   }
 
   async syncAllGoFiles(): Promise<{ added: number; skipped: number; errors: number; files: number }> {
@@ -83,12 +93,29 @@ export class ErrorCodeSyncService {
     let totalSkipped = 0
     let totalErrors = 0
 
-    for (const file of goFiles) {
-      const result = await this.syncFromGoFile(file)
-      totalAdded += result.added
-      totalSkipped += result.skipped
-      totalErrors += result.errors
-    }
+    // 一次整体进度，而不是每个 Go 文件各弹一个通知
+    await window.withProgress(
+      {
+        location: ProgressLocation.Notification,
+        title: 'i18n Pro: Syncing error codes',
+        cancellable: true,
+      },
+      async (progress, token) => {
+        for (let i = 0; i < goFiles.length; i++) {
+          if (token.isCancellationRequested) break
+
+          progress.report({
+            message: `[${i + 1}/${goFiles.length}] ${path.basename(goFiles[i])}`,
+            increment: goFiles.length > 0 ? 100 / goFiles.length : 0,
+          })
+
+          const result = await this.syncFromGoFile(goFiles[i], { silent: true })
+          totalAdded += result.added
+          totalSkipped += result.skipped
+          totalErrors += result.errors
+        }
+      },
+    )
 
     return { added: totalAdded, skipped: totalSkipped, errors: totalErrors, files: goFiles.length }
   }
@@ -146,14 +173,23 @@ export class ErrorCodeSyncService {
       }
     }
 
-    await this.store.setTranslation('zh', keyValue, zhDescription)
-
+    const descriptionLocale = this.resolveDescriptionLocale()
+    const edits: TranslationEdit[] = [{ locale: descriptionLocale, key: keyValue, value: zhDescription }]
     for (const locale of this.store.locales) {
-      if (locale === 'zh') continue
-      await this.store.setTranslation(locale, keyValue, '')
+      if (locale === descriptionLocale) continue
+      edits.push({ locale, key: keyValue, value: '' })
     }
+    await this.store.setTranslations(edits)
 
     return true
+  }
+
+  /**
+   * 中文描述写到哪个语言。项目里有中文就写中文，否则写源语言 ——
+   * 原来硬编码 'zh'，在没有中文的项目里会凭空多出一个 zh 文件。
+   */
+  private resolveDescriptionLocale(): string {
+    return this.store.matchLocale('zh') ?? this.store.projectConfig.sourceLanguage
   }
 
   async checkIntegrity(): Promise<IntegrityResult> {
@@ -186,13 +222,14 @@ export class ErrorCodeSyncService {
       }
     }
 
+    // 覆盖率必须在「Go 常量这批 key」上统计；按语言全部 key 统计会算出 >100%
+    const goKeys = Array.from(goConstKeys.keys())
     const localeCoverage = this.store.locales.map(locale => {
-      const keys = this.store.getKeysForLocale(locale)
-      const covered = keys.filter(k => {
+      const covered = goKeys.filter(k => {
         const v = this.store.getTranslation(locale, k)
         return v !== undefined && v !== ''
       }).length
-      const total = goConstKeys.size
+      const total = goKeys.length
       return {
         locale,
         total,
@@ -326,18 +363,20 @@ export class ErrorCodeSyncService {
       const { TranslatorService } = await import('./translator')
       const translator = new TranslatorService(this.store)
       const config = this.store.projectConfig
-      const targetLocales = this.store.locales.filter(l => l !== 'zh')
+      const descriptionLocale = this.resolveDescriptionLocale()
+      const targetLocales = this.store.locales.filter(l => l !== descriptionLocale)
+      const edits: TranslationEdit[] = []
 
       for (const locale of targetLocales) {
         try {
-          const result = await translator.translateText(zhDescription, 'zh', locale)
-          if (result) {
-            await this.store.setTranslation(locale, keyValue, result)
-          }
+          const result = await translator.translateText(zhDescription, descriptionLocale, locale)
+          if (result) edits.push({ locale, key: keyValue, value: result })
         } catch (err: any) {
           console.error(`Translation failed for ${keyValue} → ${locale}:`, err)
         }
       }
+
+      await this.store.setTranslations(edits)
     }
 
     window.showInformationMessage(`✅ Added: ${constName} = "${keyValue}" → zh: "${zhDescription}"`)
@@ -415,16 +454,15 @@ export class ErrorCodeSyncService {
       }
     }
 
-    let synced = 0
+    const syncEdits: TranslationEdit[] = []
     for (const key of missingKeys) {
       for (const locale of this.store.locales) {
-        const existing = this.store.getTranslation(locale, key)
-        if (existing === undefined) {
-          await this.store.setTranslation(locale, key, '')
-          synced++
-        }
+        if (this.store.getTranslation(locale, key) === undefined)
+          syncEdits.push({ locale, key, value: '' })
       }
     }
+    await this.store.setTranslations(syncEdits)
+    const synced = syncEdits.length
 
     let translated = 0
     let skipped = 0
@@ -438,7 +476,10 @@ export class ErrorCodeSyncService {
       },
       async (progress, token) => {
         const total = allKeys.length * targetLocales.length
+        const increment = total > 0 ? 100 / total : 0
         let current = 0
+
+        const pending: TranslationEdit[] = []
 
         const tasks = allKeys.map(key => async () => {
           const sourceValue = this.store.getTranslation(sourceLocale, key)
@@ -455,16 +496,16 @@ export class ErrorCodeSyncService {
             const existing = this.store.getTranslation(locale, key)
             if (existing !== undefined && existing !== '') {
               skipped++
-              progress.report({ message: `[${current}/${total}] ⏭ ${key} → ${locale}`, increment: 100 / total })
+              progress.report({ message: `[${current}/${total}] ⏭ ${key} → ${locale}`, increment })
               continue
             }
 
-            progress.report({ message: `[${current}/${total}] 🔄 ${key} → ${locale}`, increment: 100 / total })
+            progress.report({ message: `[${current}/${total}] 🔄 ${key} → ${locale}`, increment })
 
             try {
               const result = await translator.translateText(sourceValue, sourceLocale, locale)
               if (result) {
-                await this.store.setTranslation(locale, key, result)
+                pending.push({ locale, key, value: result })
                 translated++
                 progress.report({ message: `[${current}/${total}] ✅ ${key} → ${locale}` })
               } else {
@@ -478,6 +519,7 @@ export class ErrorCodeSyncService {
         })
 
         await Concurrency.run(tasks, DEFAULT_CONCURRENCY.TRANSLATION, undefined, token)
+        await this.store.setTranslations(pending)
       },
     )
 

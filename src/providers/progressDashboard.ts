@@ -1,5 +1,5 @@
 import { window, ViewColumn, commands, env, ProgressLocation } from 'vscode'
-import { TranslationStore } from '../core/store'
+import { TranslationStore, TranslationEdit } from '../core/store'
 import { getLocaleFlag, getLocaleName, getLocaleFlagCssClass, t } from '../i18n'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
 import type { TranslatorService } from '../services/translator'
@@ -238,15 +238,16 @@ export class ProgressDashboard {
           )
           if (!confirm) return
 
-          let removed = 0
+          // 整批一次写盘：逐条 deleteTranslation 会把每份语言文件重写 key × locale 次
+          const edits: TranslationEdit[] = []
           for (const key of unreferencedKeys) {
             for (const locale of this.store.locales) {
-              if (this.store.getTranslation(locale, key) !== undefined) {
-                await this.store.deleteTranslation(locale, key)
-              }
+              if (this.store.getTranslation(locale, key) !== undefined)
+                edits.push({ locale, key, value: undefined })
             }
-            removed++
           }
+          await this.store.setTranslations(edits)
+          const removed = unreferencedKeys.length
 
           await this.store.refresh()
           this.dependencyData = null
