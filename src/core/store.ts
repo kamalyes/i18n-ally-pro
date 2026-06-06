@@ -522,26 +522,46 @@ export class TranslationStore extends EventEmitter {
       return file
     }
 
-    // Otherwise, find a reference file from the same project
+    // Try to find a reference file from the same project
     const refFile = this.files[0]
-    if (!refFile) return null
+    if (refFile) {
+      const dir = path.dirname(refFile.filepath)
+      const ext = path.extname(refFile.filepath)
+      const newFilePath = path.join(dir, `${locale}${ext}`)
+      const parser = refFile.parser
 
-    const dir = path.dirname(refFile.filepath)
-    const ext = path.extname(refFile.filepath)
-    const newFilePath = path.join(dir, `${locale}${ext}`)
-    const parser = refFile.parser
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      const initData = parser === 'json' ? '{}' : ''
+      if (!fs.existsSync(newFilePath)) {
+        fs.writeFileSync(newFilePath, initData, 'utf-8')
+      }
 
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+      const file: TranslationFile = { locale, filepath: newFilePath, parser }
+      this.files.push(file)
+      return file
     }
-    const initData = parser === 'json' ? '{}' : ''
-    if (!fs.existsSync(newFilePath)) {
-      fs.writeFileSync(newFilePath, initData, 'utf-8')
+
+    // No reference files at all - use project's localesPaths to create the file
+    const config = this.projectConfig
+    const localesPaths = config.localesPaths
+    if (localesPaths.length > 0) {
+      const localeDir = path.join(config.rootPath, localesPaths[0])
+      if (!fs.existsSync(localeDir)) {
+        fs.mkdirSync(localeDir, { recursive: true })
+      }
+      const newFilePath = path.join(localeDir, `${locale}.json`)
+      const initData = '{}'
+      if (!fs.existsSync(newFilePath)) {
+        fs.writeFileSync(newFilePath, initData, 'utf-8')
+      }
+      const file: TranslationFile = { locale, filepath: newFilePath, parser: 'json' }
+      this.files.push(file)
+      return file
     }
 
-    const file: TranslationFile = { locale, filepath: newFilePath, parser }
-    this.files.push(file)
-    return file
+    return null
   }
 
   findKeyPosition(filepath: string, key: string): { line: number; column: number } | null {
