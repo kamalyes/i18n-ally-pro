@@ -103,10 +103,74 @@ export class ProgressDashboard {
       }
       if (msg.type === 'autoTranslate') {
         try {
-          await commands.executeCommand('i18nAllyPro.autoTranslate')
+          if (!this.translatorService) {
+            window.showWarningMessage(t('dashboard.auto_translate_no_service'))
+            this.panel?.webview.postMessage({ type: 'translateDone', error: true })
+            return
+          }
+
+          const locales = this.store.locales
+          const allKeys = this.store.getAllKeys()
+          const sourceLocale = this.store.projectConfig.sourceLanguage
+
+          // Build locale items with stats
+          const localeItems = locales.map(locale => {
+            const filled = allKeys.filter(key => {
+              const v = this.store.getTranslation(locale, key)
+              return v !== undefined && v !== ''
+            }).length
+            const missing = allKeys.length - filled
+            const isSource = locale === sourceLocale
+            return {
+              label: `${getLocaleFlag(locale)} ${getLocaleName(locale)}`,
+              description: locale,
+              detail: isSource
+                ? t('dashboard.auto_translate_source_hint', String(filled), String(allKeys.length))
+                : t('dashboard.auto_translate_locale_hint', String(filled), String(allKeys.length), String(missing)),
+              locale,
+              filled,
+              missing,
+              isSource,
+            }
+          }).sort((a, b) => {
+            // Source locale first, then by filled count descending
+            if (a.isSource && !b.isSource) return -1
+            if (!a.isSource && b.isSource) return 1
+            return b.filled - a.filled
+          })
+
+          const selected = await window.showQuickPick(localeItems, {
+            placeHolder: t('dashboard.auto_translate_pick_source'),
+            title: t('dashboard.auto_translate_title'),
+          })
+
+          if (!selected) {
+            this.panel?.webview.postMessage({ type: 'translateDone', error: false })
+            return
+          }
+
+          const chosenSource = selected.locale
+          const targetLocales = locales.filter(l => l !== chosenSource)
+
+          if (targetLocales.length === 0) {
+            window.showInformationMessage(t('dashboard.auto_translate_no_targets'))
+            this.panel?.webview.postMessage({ type: 'translateDone', error: false })
+            return
+          }
+
+          let totalTranslated = 0
+          let totalErrors = 0
+
+          for (const targetLocale of targetLocales) {
+            const result = await this.translatorService.translateLocale(chosenSource, targetLocale, false)
+            totalTranslated += result.translated
+            totalErrors += result.errors
+          }
+
           await this.store.refresh()
           this.update()
           if (this.onRefresh) this.onRefresh()
+          window.showInformationMessage(t('dashboard.auto_translate_result', String(totalTranslated), String(totalErrors)))
           this.panel?.webview.postMessage({ type: 'translateDone' })
         } catch (err: any) {
           window.showErrorMessage(t('dashboard.auto_translate_failed', err.message))
