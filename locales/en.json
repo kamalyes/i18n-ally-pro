@@ -31,7 +31,12 @@
     "clone_failed": "Clone locale failed - {0}",
     "clone_result": "✅ Cloned {0} → {1}: {2} keys copied, {3} skipped",
     "refresh_failed": "Refresh failed - {0}",
-    "refreshed": "Dashboard refreshed"
+    "refreshed": "Dashboard refreshed",
+    "remove_missing_confirm": "Found {0} missing/empty keys. Only keys that are missing or empty in ALL locales will be removed. Continue?",
+    "remove_missing_confirm_yes": "Remove",
+    "remove_missing_done": "Removed {0} keys, {1} skipped (have translations in some locales)",
+    "remove_missing_failed": "Remove missing keys failed - {0}",
+    "remove_missing_none": "No missing keys found"
   },
   "diff": {
     "all_complete": "All translations are complete!",

@@ -31,7 +31,12 @@
     "clone_failed": "克隆语言失败 - {0}",
     "clone_result": "✅ 克隆 {0} → {1}: {2} 个 key 已复制, {3} 个跳过",
     "refresh_failed": "刷新失败 - {0}",
-    "refreshed": "仪表盘已刷新"
+    "refreshed": "仪表盘已刷新",
+    "remove_missing_confirm": "发现 {0} 个缺失/空的 key。仅会移除在所有语言中都缺失或为空的 key。是否继续？",
+    "remove_missing_confirm_yes": "移除",
+    "remove_missing_done": "已移除 {0} 个 key，{1} 个跳过（部分语言已有翻译）",
+    "remove_missing_failed": "移除缺失 key 失败 - {0}",
+    "remove_missing_none": "未发现缺失的 key"
   },
   "diff": {
     "all_complete": "所有翻译已完成！",

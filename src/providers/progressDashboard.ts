@@ -144,6 +144,62 @@ export class ProgressDashboard {
           this.panel?.webview.postMessage({ type: 'cloneDone', error: true })
         }
       }
+      if (msg.type === 'removeMissing') {
+        try {
+          const diagnostics = this.store.getDiagnostics().filter(d => d.type === 'missing' || d.type === 'empty')
+          if (diagnostics.length === 0) {
+            window.showInformationMessage(t('dashboard.remove_missing_none'))
+            this.panel?.webview.postMessage({ type: 'removeMissingDone', removed: 0 })
+            return
+          }
+
+          const confirm = await window.showWarningMessage(
+            t('dashboard.remove_missing_confirm', String(diagnostics.length)),
+            { modal: true },
+            t('dashboard.remove_missing_confirm_yes'),
+          )
+          if (!confirm) return
+
+          const allKeys = this.store.getAllKeys()
+          const missingKeys = new Set<string>()
+          for (const d of diagnostics) {
+            missingKeys.add(d.key)
+          }
+
+          // Only remove keys that are missing/empty in ALL locales
+          const keysToRemove: string[] = []
+          for (const key of missingKeys) {
+            const hasAnyFilled = allKeys.length > 0 && this.store.locales.some(locale => {
+              const v = this.store.getTranslation(locale, key)
+              return v !== undefined && v !== ''
+            })
+            if (!hasAnyFilled) {
+              keysToRemove.push(key)
+            }
+          }
+
+          let removed = 0
+          for (const key of keysToRemove) {
+            for (const locale of this.store.locales) {
+              if (this.store.getTranslation(locale, key) !== undefined) {
+                await this.store.deleteTranslation(locale, key)
+              }
+            }
+            removed++
+          }
+
+          await this.store.refresh()
+          this.dependencyData = null
+          this.update()
+          this.ensureDependenciesScanned()
+          if (this.onRefresh) this.onRefresh()
+          window.showInformationMessage(t('dashboard.remove_missing_done', String(removed), String(diagnostics.length - removed)))
+          this.panel?.webview.postMessage({ type: 'removeMissingDone', removed })
+        } catch (err: any) {
+          window.showErrorMessage(t('dashboard.remove_missing_failed', err.message))
+          this.panel?.webview.postMessage({ type: 'removeMissingDone', error: true })
+        }
+      }
       if (msg.type === 'openCategory' && msg.category) {
         const keys = this.store.getAllKeys().filter(k => {
           const parts = k.split('.')
@@ -633,6 +689,8 @@ Instructions:
     .btn-primary:hover { background: var(--color-success); color: #fff; }
     .btn-info { border-color: var(--color-info); color: var(--color-info); }
     .btn-info:hover { background: var(--color-info); color: #fff; }
+    .btn-danger { border-color: var(--color-danger); color: var(--color-danger); }
+    .btn-danger:hover { background: var(--color-danger); color: #fff; }
     .btn-icon {
       padding: 3px 6px;
       background: transparent;
@@ -892,6 +950,7 @@ Instructions:
         <div class="btn-group">
           <button class="btn btn-info" onclick="autoTranslate()" title="Auto translate all missing keys">Auto Translate</button>
           <button class="btn btn-info" onclick="formatAll()" title="Format all locale files">Format</button>
+          <button class="btn btn-danger" onclick="removeMissing()" title="Remove keys that are missing/empty in all locales">Remove Missing</button>
         </div>
         <div class="btn-group">
           <button class="btn" onclick="openAIPrompt('codex')" title="Send dashboard prompt to Codex">Codex</button>
@@ -1003,6 +1062,13 @@ Instructions:
       vscode.postMessage({ type: 'formatAll' });
       showToast(I18N.formatting);
     }
+    function removeMissing() {
+      const btn = document.querySelector('.btn-danger');
+      if (btn && btn.disabled) return;
+      setBtnLoading(btn, true);
+      vscode.postMessage({ type: 'removeMissing' });
+      showToast('Removing missing keys...');
+    }
     function openAIPrompt(target) {
       vscode.postMessage({ type: 'openAIPrompt', target });
     }
@@ -1036,6 +1102,11 @@ Instructions:
       }
       if (msg.type === 'cloneDone') {
         showToast(msg.error ? 'Clone failed' : 'Cloned ' + (msg.cloned || 0) + ' keys', msg.error ? 'error' : undefined);
+      }
+      if (msg.type === 'removeMissingDone') {
+        const btn = document.querySelector('.btn-danger');
+        setBtnLoading(btn, false);
+        showToast(msg.error ? 'Remove missing failed' : 'Removed ' + (msg.removed || 0) + ' keys', msg.error ? 'error' : undefined);
       }
     });
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
