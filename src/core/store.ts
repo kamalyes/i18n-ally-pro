@@ -296,7 +296,7 @@ export class TranslationStore extends EventEmitter {
           const value = this.translations[locale]?.[key]
           if (value === undefined) continue
           hasDefined = true
-          if (value === '') hasEmpty = true
+          if (value.trim() === '') hasEmpty = true
           else {
             hasEmpty = false
             break

@@ -162,7 +162,7 @@ export class I18nHoverProvider implements HoverProvider {
 
     const missingLocales = allLocales.filter(l => {
       const v = this.store.getTranslation(l, key)
-      return v === undefined || v === ''
+      return v === undefined || v.trim() === ''
     })
 
     contents.appendMarkdown(`### 🌐 \`${key}\`\n\n`)
@@ -175,7 +175,7 @@ export class I18nHoverProvider implements HoverProvider {
       const value = this.store.getTranslation(locale, key)
       const flag = getLocaleFlag(locale)
       const isSource = locale === sourceLocale
-      const isMissing = value === undefined || value === ''
+      const isMissing = value === undefined || value.trim() === ''
 
       const localeLabel = isSource ? `**${locale}**` : locale
       const displayValue = isMissing
@@ -223,7 +223,7 @@ export class I18nHoverProvider implements HoverProvider {
 
     const missingLocales = allLocales.filter(l => {
       const v = this.store.getTranslation(l, key)
-      return v === undefined || v === ''
+      return v === undefined || v.trim() === ''
     })
 
     const flag = getLocaleFlag(currentLocale)
@@ -240,7 +240,7 @@ export class I18nHoverProvider implements HoverProvider {
       const lFlag = getLocaleFlag(locale)
       const lName = getLocaleName(locale)
       const isSource = locale === sourceLocale
-      const isMissing = value === undefined || value === ''
+      const isMissing = value === undefined || value.trim() === ''
       const isCurrent = locale === currentLocale
 
       const localeLabel = isSource ? `**${locale}**` : locale

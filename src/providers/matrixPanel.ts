@@ -333,7 +333,7 @@ export class TranslationMatrixPanel {
 
       for (const locale of locales) {
         const value = this.store.getTranslation(locale, key)
-        const isEmpty = value === undefined || value === ''
+        const isEmpty = value === undefined || value.trim() === ''
         if (isEmpty) missingForLocales.push(locale)
 
         const cellClass = isEmpty ? 'cell-td missing' : 'cell-td'

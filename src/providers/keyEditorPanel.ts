@@ -206,7 +206,7 @@ export class KeyEditorPanel {
       ? targetLocales
       : targetLocales.filter(l => {
           const v = this.store.getTranslation(l, key)
-          return v === undefined || v === ''
+          return this.isBlankTranslation(v)
         })
 
     if (localesToTranslate.length === 0) {
@@ -323,7 +323,7 @@ export class KeyEditorPanel {
 
     const rows = locales.map(locale => {
       const value = this.store.getTranslation(locale, key)
-      const isMissing = value === undefined || value === ''
+      const isMissing = this.isBlankTranslation(value)
       const isSource = locale === sourceLocale
       const flagEmoji = getLocaleFlag(locale)
       const name = getLocaleName(locale)
@@ -558,6 +558,10 @@ export class KeyEditorPanel {
 
   private escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+
+  private isBlankTranslation(value: string | undefined): boolean {
+    return value === undefined || value.trim() === ''
   }
 
   private escJs(s: string): string {

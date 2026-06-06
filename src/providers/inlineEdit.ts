@@ -72,7 +72,7 @@ export class I18nInlineEditProvider implements CodeActionProvider {
 
     const missingLocales = this.store.locales.filter(l => {
       const v = this.store.getTranslation(l, match.key)
-      return v === undefined || v === ''
+      return v === undefined || v.trim() === ''
     })
 
     if (missingLocales.length > 0) {

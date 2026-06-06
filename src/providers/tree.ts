@@ -273,7 +273,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
   private getKeyStatus(locale: string, key: string): KeyStatus {
     const value = this.store.getTranslation(locale, key)
     if (value === undefined) return 'missing'
-    if (value === '') return 'empty'
+    if (value.trim() === '') return 'empty'
     return 'translated'
   }
 
@@ -430,7 +430,7 @@ export class I18nDragAndDropController implements TreeDragAndDropController<I18n
   private getKeyStatus(locale: string, key: string): KeyStatus {
     const value = this.store.getTranslation(locale, key)
     if (value === undefined) return 'missing'
-    if (value === '') return 'empty'
+    if (value.trim() === '') return 'empty'
     return 'translated'
   }
 }
