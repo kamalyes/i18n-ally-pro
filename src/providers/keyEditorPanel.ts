@@ -351,7 +351,7 @@ export class KeyEditorPanel {
             >${displayValue}</textarea>
             <div class="action-buttons">
               <button class="btn btn-save" data-action="save" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Save">💾</button>
-              ${!isSource && isMissing ? `<button class="btn btn-translate" data-action="translate" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Auto translate">🤖</button>` : ''}
+              <button class="btn btn-translate${isMissing ? '' : ' hidden'}" data-action="translate" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Auto translate">🤖</button>
               <button class="btn btn-open" data-action="open" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Open in editor">📂</button>
               <button class="btn btn-delete" data-action="delete" data-locale="${this.escAttr(locale)}" data-key="${this.escAttr(key)}" title="Delete">🗑️</button>
             </div>
@@ -407,6 +407,7 @@ export class KeyEditorPanel {
     .btn { width: 32px; height: 32px; border: 1px solid #444; border-radius: 4px;
       background: #2d2d2d; cursor: pointer; display: flex; align-items: center;
       justify-content: center; font-size: 14px; transition: all 0.15s; }
+    .btn.hidden { display: none; }
     .btn:hover { background: #3d3d3d; border-color: #888; }
     .btn-save:hover { border-color: #4CAF50; }
     .btn-translate:hover { border-color: #2196F3; }
@@ -477,6 +478,13 @@ export class KeyEditorPanel {
       vscode.postMessage({ type: 'translate', key, locale });
     }
 
+    function syncTranslateButton(input) {
+      const row = input.closest('.locale-row');
+      const btn = row?.querySelector('[data-action="translate"]');
+      if (!btn) return;
+      btn.classList.toggle('hidden', input.value.trim().length > 0);
+    }
+
     function openFile(locale, key) {
       vscode.postMessage({ type: 'openFile', key, locale });
       showToast(I18N.openingFile);
@@ -524,8 +532,12 @@ export class KeyEditorPanel {
           saveValue(input.dataset.locale, input.dataset.key);
         }
       });
+      input.addEventListener('input', () => {
+        syncTranslateButton(input);
+      });
       input.addEventListener('blur', () => {
         saveValue(input.dataset.locale, input.dataset.key);
+        syncTranslateButton(input);
       });
     });
 
