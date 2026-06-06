@@ -1,22 +1,34 @@
 import {
   TreeDataProvider, TreeItem, TreeItemCollapsibleState, Command, EventEmitter, Event,
-  Uri, ThemeIcon, ThemeColor, TreeDragAndDropController, DataTransfer, DataTransferItem, window,
+  ThemeIcon, ThemeColor, TreeDragAndDropController, DataTransfer, DataTransferItem, window,
 } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { getLocaleFlag, t } from '../i18n'
 
-type I18nNode = RootNode | GroupNode | KeyNode | PlaceholderNode
+type KeyStatus = 'translated' | 'empty' | 'missing'
+type I18nNode = RootNode | StatusNode | GroupNode | KeyNode | PlaceholderNode
 
 class RootNode {
   constructor(public label: string, public locale: string, public isSource: boolean) {}
 }
 
+class StatusNode {
+  constructor(public status: KeyStatus, public locale: string, public count: number) {}
+}
+
 class GroupNode {
-  constructor(public label: string, public locale: string, public keypath: string) {}
+  constructor(public label: string, public locale: string, public keypath: string, public status?: KeyStatus) {}
 }
 
 class KeyNode {
-  constructor(public keypath: string, public displayKey: string, public value: string, public locale: string, public filepath: string, public isMissing: boolean) {}
+  constructor(
+    public keypath: string,
+    public displayKey: string,
+    public value: string,
+    public locale: string,
+    public filepath: string,
+    public status: KeyStatus,
+  ) {}
 }
 
 class PlaceholderNode {
@@ -26,7 +38,9 @@ class PlaceholderNode {
 interface LocaleCoverageStats {
   total: number
   filled: number
-  pct: number
+  empty: number
+  missing: number
+  pct: string
   hasMissing: boolean
 }
 
@@ -77,17 +91,36 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     if (element instanceof RootNode) {
       const flag = getLocaleFlag(element.locale)
       const item = new TreeItem(`${flag} ${element.label}`, element.isSource ? TreeItemCollapsibleState.Expanded : TreeItemCollapsibleState.Collapsed)
-      item.iconPath = ThemeIcon.Folder
+
       try {
         const stats = this.getLocaleCoverageStats(element.locale)
-        item.description = stats.hasMissing ? `${stats.pct}% (${stats.filled}/${stats.total})` : `✅ ${stats.pct}%`
+        const sourceMark = element.isSource ? ` ${t('editor.source').toLowerCase()}` : ''
+        item.description = `${this.getProgressBar(stats.filled, stats.total)} ${stats.pct}% (${stats.filled}/${stats.total})${sourceMark}`
+        item.tooltip = `${element.locale}: ${stats.filled}/${stats.total} translated, ${stats.empty} empty, ${stats.missing} missing`
+
         if (element.isSource) {
-          item.iconPath = new ThemeIcon('folder', new ThemeColor('gitDecoration.modifiedResourceForeground'))
+          item.iconPath = new ThemeIcon('globe', new ThemeColor('gitDecoration.modifiedResourceForeground'))
+        } else if (stats.hasMissing) {
+          item.iconPath = new ThemeIcon('globe', new ThemeColor('problemsWarningIcon.foreground'))
+        } else {
+          item.iconPath = new ThemeIcon('globe', new ThemeColor('testing.iconPassed'))
         }
       } catch {
         item.description = ''
       }
+
       item.contextValue = 'localeRoot'
+      return item
+    }
+
+    if (element instanceof StatusNode) {
+      const item = new TreeItem(
+        `${this.getStatusLabel(element.status)} (${element.count})`,
+        element.count > 0 ? TreeItemCollapsibleState.Collapsed : TreeItemCollapsibleState.None,
+      )
+      item.iconPath = this.getStatusIcon(element.status)
+      item.tooltip = `${element.locale}: ${this.getStatusLabel(element.status)} (${element.count})`
+      item.contextValue = `status-${element.status}`
       return item
     }
 
@@ -96,29 +129,43 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
       item.iconPath = ThemeIcon.Folder
       item.tooltip = element.keypath
       item.contextValue = 'group'
+
       try {
-        const stats = this.getLocaleCoverageStats(element.locale, element.keypath)
-        item.description = stats.hasMissing ? `${stats.pct}% (${stats.filled}/${stats.total})` : `✅ ${stats.pct}%`
-        if (stats.hasMissing) {
-          item.iconPath = new ThemeIcon('folder', new ThemeColor('list.warningForeground'))
+        if (element.status) {
+          const count = this.getFilteredKeys(element.locale, element.status, element.keypath).length
+          item.description = String(count)
+          item.iconPath = this.getStatusIcon(element.status)
+        } else {
+          const stats = this.getLocaleCoverageStats(element.locale, element.keypath)
+          item.description = `${stats.pct}% (${stats.filled}/${stats.total})`
+          if (stats.hasMissing) {
+            item.iconPath = new ThemeIcon('folder', new ThemeColor('list.warningForeground'))
+          }
         }
       } catch {
         item.description = ''
       }
+
       return item
     }
 
     if (element instanceof KeyNode) {
       const item = new TreeItem(element.displayKey, TreeItemCollapsibleState.None)
-      if (element.isMissing) {
+
+      if (element.status === 'missing') {
         item.description = `(${t('editor.missing')})`
-        item.iconPath = new ThemeIcon('warning')
-        item.tooltip = `⚠ ${t('editor.missing')}: ${element.keypath} [${element.locale}]`
+        item.iconPath = this.getStatusIcon('missing')
+        item.tooltip = `${t('editor.missing')}: ${element.keypath} [${element.locale}]`
+      } else if (element.status === 'empty') {
+        item.description = `(${t('editor.empty')})`
+        item.iconPath = this.getStatusIcon('empty')
+        item.tooltip = `${t('editor.empty')}: ${element.keypath} [${element.locale}]`
       } else {
         item.description = element.value.length > 40 ? element.value.slice(0, 40) + '...' : element.value
         item.iconPath = new ThemeIcon('symbol-string')
         item.tooltip = `${element.locale}: ${element.value}\nKey: ${element.keypath}`
       }
+
       item.command = {
         command: 'i18nAllyPro.openKeyAndFile',
         title: t('command.openEditor'),
@@ -148,35 +195,26 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     if (!element) {
       const sourceLocale = this.store.projectConfig.sourceLanguage
       return locales.map(locale =>
-        new RootNode(locale.toUpperCase(), locale, locale === sourceLocale)
+        new RootNode(locale, locale, locale === sourceLocale)
       )
     }
 
     if (element instanceof RootNode) {
-      let keys = this.store.getAllKeys()
-      if (this.searchFilter) {
-        keys = keys.filter(k => {
-          if (k.toLowerCase().includes(this.searchFilter)) return true
-          const v = this.store.getTranslation(element.locale, k)
-          if (v && v.toLowerCase().includes(this.searchFilter)) return true
-          return false
-        })
-      }
-      return this.buildNodes(keys, element.locale)
+      return [
+        new StatusNode('translated', element.locale, this.getFilteredKeys(element.locale, 'translated').length),
+        new StatusNode('empty', element.locale, this.getFilteredKeys(element.locale, 'empty').length),
+        new StatusNode('missing', element.locale, this.getFilteredKeys(element.locale, 'missing').length),
+      ]
+    }
+
+    if (element instanceof StatusNode) {
+      const keys = this.getFilteredKeys(element.locale, element.status)
+      return this.buildNodes(keys, element.locale, '', element.status)
     }
 
     if (element instanceof GroupNode) {
-      let keys = this.store.getAllKeys()
-        .filter(k => k.startsWith(element.keypath + '.') || k === element.keypath)
-      if (this.searchFilter) {
-        keys = keys.filter(k => {
-          if (k.toLowerCase().includes(this.searchFilter)) return true
-          const v = this.store.getTranslation(element.locale, k)
-          if (v && v.toLowerCase().includes(this.searchFilter)) return true
-          return false
-        })
-      }
-      return this.buildNodes(keys, element.locale, element.keypath)
+      const keys = this.getFilteredKeys(element.locale, element.status, element.keypath)
+      return this.buildNodes(keys, element.locale, element.keypath, element.status)
     }
 
     return []
@@ -186,27 +224,80 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
     const keys = this.store.getAllKeys()
       .filter(k => !prefix || k === prefix || k.startsWith(prefix + '.'))
 
-    const total = keys.length
-    const filled = keys.filter(k => {
-      const value = this.store.getTranslation(locale, k)
-      return value !== undefined && value !== ''
-    }).length
+    let filled = 0
+    let empty = 0
+    let missing = 0
+
+    for (const key of keys) {
+      const status = this.getKeyStatus(locale, key)
+      if (status === 'translated') filled++
+      else if (status === 'empty') empty++
+      else missing++
+    }
 
     return {
-      total,
+      total: keys.length,
       filled,
-      pct: this.toCoveragePct(filled, total),
-      hasMissing: filled < total,
+      empty,
+      missing,
+      pct: this.toCoveragePct(filled, keys.length),
+      hasMissing: filled < keys.length,
     }
   }
 
-  private toCoveragePct(filled: number, total: number): number {
-    if (total === 0) return 100
-    if (filled >= total) return 100
-    return Math.round((filled / total) * 100)
+  private toCoveragePct(filled: number, total: number): string {
+    if (total === 0 || filled >= total) return '100'
+    const pct = Math.round((filled / total) * 1000) / 10
+    return Number.isInteger(pct) ? String(pct) : pct.toFixed(1)
   }
 
-  private buildNodes(keys: string[], locale: string, prefix = ''): I18nNode[] {
+  private getProgressBar(filled: number, total: number): string {
+    const segments = 10
+    if (total === 0) return ':'.repeat(segments)
+    const active = Math.max(0, Math.min(segments, Math.round((filled / total) * segments)))
+    return '|'.repeat(active) + ':'.repeat(segments - active)
+  }
+
+  private getStatusLabel(status: KeyStatus): string {
+    if (status === 'translated') return t('editor.translated')
+    if (status === 'empty') return t('editor.empty')
+    return t('editor.missing')
+  }
+
+  private getStatusIcon(status: KeyStatus): ThemeIcon {
+    if (status === 'translated') return new ThemeIcon('pass-filled', new ThemeColor('testing.iconPassed'))
+    if (status === 'empty') return new ThemeIcon('warning', new ThemeColor('problemsWarningIcon.foreground'))
+    return new ThemeIcon('error', new ThemeColor('problemsErrorIcon.foreground'))
+  }
+
+  private getKeyStatus(locale: string, key: string): KeyStatus {
+    const value = this.store.getTranslation(locale, key)
+    if (value === undefined) return 'missing'
+    if (value === '') return 'empty'
+    return 'translated'
+  }
+
+  private getFilteredKeys(locale: string, status?: KeyStatus, prefix = ''): string[] {
+    const keys = this.store.getAllKeys()
+      .filter(k => !prefix || k === prefix || k.startsWith(prefix + '.'))
+
+    const searched = this.searchFilter
+      ? keys.filter(k => {
+          if (k.toLowerCase().includes(this.searchFilter)) return true
+          const v = this.store.getTranslation(locale, k)
+          if (v && v.toLowerCase().includes(this.searchFilter)) return true
+          return false
+        })
+      : keys
+
+    return status ? this.filterKeysByStatus(searched, locale, status) : searched
+  }
+
+  private filterKeysByStatus(keys: string[], locale: string, status: KeyStatus): string[] {
+    return keys.filter(k => this.getKeyStatus(locale, k) === status)
+  }
+
+  private buildNodes(keys: string[], locale: string, prefix = '', status?: KeyStatus): I18nNode[] {
     const groups = new Map<string, string[]>()
     const directKeys: string[] = []
 
@@ -229,7 +320,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
       const groupPath = prefix ? `${prefix}.${group}` : group
       const hasDirectValue = directKeys.includes(groupPath)
       if (!hasDirectValue) {
-        nodes.push(new GroupNode(group, locale, groupPath))
+        nodes.push(new GroupNode(group, locale, groupPath, status))
       }
     }
 
@@ -237,8 +328,7 @@ export class I18nTreeProvider implements TreeDataProvider<I18nNode> {
       const value = this.store.getTranslation(locale, key)
       const displayKey = prefix ? key.slice(prefix.length + 1) : key
       const file = this.store.findFileForKey(key, locale)
-      const isMissing = value === undefined || value === ''
-      nodes.push(new KeyNode(key, displayKey, value || '', locale, file?.filepath || '', isMissing))
+      nodes.push(new KeyNode(key, displayKey, value || '', locale, file?.filepath || '', this.getKeyStatus(locale, key)))
     }
 
     return nodes
@@ -263,7 +353,9 @@ export class I18nDragAndDropController implements TreeDragAndDropController<I18n
       if (node instanceof KeyNode) {
         keys.push(node.keypath)
       } else if (node instanceof GroupNode) {
-        const groupKeys = this.store.getAllKeys().filter(k => k.startsWith(node.keypath + '.') || k === node.keypath)
+        const groupKeys = this.store.getAllKeys()
+          .filter(k => k.startsWith(node.keypath + '.') || k === node.keypath)
+          .filter(k => !node.status || this.getKeyStatus(node.locale, k) === node.status)
         keys.push(...groupKeys)
       }
     }
@@ -333,5 +425,12 @@ export class I18nDragAndDropController implements TreeDragAndDropController<I18n
 
     this.onRefresh()
     window.showInformationMessage(t('editor.drag_done', String(renames.length)))
+  }
+
+  private getKeyStatus(locale: string, key: string): KeyStatus {
+    const value = this.store.getTranslation(locale, key)
+    if (value === undefined) return 'missing'
+    if (value === '') return 'empty'
+    return 'translated'
   }
 }
