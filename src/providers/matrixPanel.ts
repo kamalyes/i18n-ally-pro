@@ -1,4 +1,4 @@
-import { window, ViewColumn, Uri, workspace } from 'vscode'
+import { window, ViewColumn, Uri, workspace, RelativePattern } from 'vscode'
 import { TranslationStore } from '../core/store'
 import { buildCloneLocaleData, getCloneDialogCss, getCloneDialogHtml, getCloneDialogJs } from './cloneDialog'
 import type { TranslatorService } from '../services/translator'
@@ -20,6 +20,9 @@ export class TranslationMatrixPanel {
   private store: TranslationStore
   private translatorService: TranslatorService | null
   private panel: import('vscode').WebviewPanel | null = null
+  private storeChangeListener: (() => void) | null = null
+  private fileWatchers: import('vscode').FileSystemWatcher[] = []
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(store: TranslationStore, translatorService?: TranslatorService) {
     this.store = store
@@ -40,11 +43,61 @@ export class TranslationMatrixPanel {
       { enableScripts: true, retainContextWhenHidden: true },
     )
 
-    this.panel.onDidDispose(() => { this.panel = null })
+    this.panel.onDidDispose(() => {
+      this.disposeListeners()
+      this.panel = null
+    })
     this.panel.webview.onDidReceiveMessage(async (msg: MatrixMessage) => {
       await this.handleMessage(msg)
     })
+
+    // Listen to store changes (programmatic updates)
+    this.storeChangeListener = () => this.scheduleRefresh()
+    this.store.on('didChange', this.storeChangeListener)
+
+    // Watch translation files on disk for external changes
+    const config = this.store.projectConfig
+    for (const localePath of config.localesPaths) {
+      const pattern = new RelativePattern(
+        Uri.file(config.rootPath),
+        `${localePath}/**/*.{json,yaml,yml,po,properties}`,
+      )
+      const watcher = workspace.createFileSystemWatcher(pattern)
+      watcher.onDidChange(() => this.scheduleRefresh())
+      watcher.onDidCreate(() => this.scheduleRefresh())
+      watcher.onDidDelete(() => this.scheduleRefresh())
+      this.fileWatchers.push(watcher)
+    }
+
     this.update()
+  }
+
+  private scheduleRefresh() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    this.refreshTimer = setTimeout(async () => {
+      if (!this.panel) return
+      try {
+        await this.store.refresh()
+        this.update()
+      } catch {
+        // ignore refresh errors
+      }
+    }, 500)
+  }
+
+  private disposeListeners() {
+    if (this.storeChangeListener) {
+      this.store.removeListener('didChange', this.storeChangeListener)
+      this.storeChangeListener = null
+    }
+    if (this.fileWatchers.length) {
+      this.fileWatchers.forEach(w => w.dispose())
+      this.fileWatchers = []
+    }
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer)
+      this.refreshTimer = null
+    }
   }
 
   private postToast(message: string, level: 'success' | 'error' | 'warn' = 'success') {
