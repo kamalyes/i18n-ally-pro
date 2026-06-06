@@ -61,6 +61,32 @@
     "summary": "Summary: {0} locales, {1} keys",
     "title": "i18n Ally Pro - Translation Diff Report"
   },
+  "export": {
+    "csv_desc": "Comma-separated values, compatible with spreadsheet tools",
+    "json_desc": "Full structured data with metadata",
+    "pick_format": "Select export format",
+    "success": "Exported {0} translations across {1} locales to {2}",
+    "title": "Export i18n Translations",
+    "xlsx_desc": "Microsoft Excel format, best for non-technical users"
+  },
+  "import": {
+    "existing_locale": "existing locale",
+    "invalid_csv": "Invalid CSV file format",
+    "invalid_json": "Invalid JSON file format",
+    "invalid_xlsx": "Invalid XLSX file format",
+    "mode_merge": "Merge (keep existing, add new)",
+    "mode_merge_desc": "Existing translations are preserved, only missing ones are added",
+    "mode_overwrite": "Overwrite (replace existing)",
+    "mode_overwrite_desc": "Existing translations are replaced with imported values",
+    "new_locale": "new locale",
+    "no_data": "No translation data found in file",
+    "parse_failed": "Failed to parse file: {0}",
+    "pick_locales": "Select locales to import",
+    "pick_mode": "Select import mode",
+    "success": "Imported {0} translations ({1} skipped) from {2}",
+    "title": "Import i18n Translations",
+    "unsupported_format": "Unsupported file format. Please use JSON, CSV, or XLSX."
+  },
   "editor": {
     "add_key_done": "Key \"{0}\" created, {1} locales translated",
     "add_key_done_no_translate": "Key \"{0}\" created",

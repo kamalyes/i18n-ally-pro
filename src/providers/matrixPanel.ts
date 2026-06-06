@@ -6,7 +6,7 @@ import { buildWebviewCsp, getWebviewNonce } from '../utils/webview'
 import { t } from '../i18n'
 
 interface MatrixMessage {
-  type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'exportCsv' | 'openFile' | 'cloneLocale'
+  type: 'ready' | 'editCell' | 'translateCell' | 'translateAllMissing' | 'deleteKey' | 'export' | 'import' | 'openFile' | 'cloneLocale'
   key?: string
   locale?: string
   value?: string
@@ -191,19 +191,18 @@ export class TranslationMatrixPanel {
         }
         break
       }
-      case 'exportCsv': {
-        const csv = this.generateCsv()
-        const uri = await window.showSaveDialog({
-          defaultUri: Uri.file('i18n-matrix.csv'),
-          filters: { 'CSV Files': ['csv'] },
-        })
-        if (uri) {
-          const fs = require('fs')
-          fs.writeFileSync(uri.fsPath, '\uFEFF' + csv, 'utf-8')
-          const exportMsg = `Exported to ${uri.fsPath}`
-          window.showInformationMessage(exportMsg)
-          this.postToast(exportMsg)
-        }
+      case 'export': {
+        const { ExportImportService } = await import('../services/exportImport')
+        const exportService = new ExportImportService(this.store)
+        await exportService.exportTranslations()
+        break
+      }
+      case 'import': {
+        const { ExportImportService } = await import('../services/exportImport')
+        const importService = new ExportImportService(this.store)
+        await importService.importTranslations()
+        await this.store.refresh()
+        this.update()
         break
       }
       case 'openFile': {
@@ -228,20 +227,6 @@ export class TranslationMatrixPanel {
         break
       }
     }
-  }
-
-  private generateCsv(): string {
-    const locales = this.store.locales
-    const allKeys = this.store.getAllKeys()
-    const header = ['Key', ...locales].join(',')
-    const rows = allKeys.map(key => {
-      const cells = [key, ...locales.map(l => {
-        const val = this.store.getTranslation(l, key) || ''
-        return `"${val.replace(/"/g, '""')}"`
-      })]
-      return cells.join(',')
-    })
-    return [header, ...rows].join('\n')
   }
 
   private update() {
@@ -384,7 +369,8 @@ export class TranslationMatrixPanel {
     </div>
     <button type="button" class="btn btn-primary" data-action="translate-all">🤖 Translate All Missing</button>
     <button type="button" class="btn" data-action="clone-dialog">📋 Clone Locale</button>
-    <button type="button" class="btn" data-action="export-csv">📄 Export CSV</button>
+    <button type="button" class="btn" data-action="export">📤 Export</button>
+    <button type="button" class="btn" data-action="import">📥 Import</button>
   </div>
   <div class="stats-bar">
     <span class="stat ok">✓ ${allKeys.length} keys</span>
@@ -471,19 +457,28 @@ export class TranslationMatrixPanel {
       vscode.postMessage({ type: 'openFile', key, locale: '${sourceLocale}' });
     }
 
-    function exportCsv() {
-      const btn = document.querySelector('[data-action="export-csv"]');
+    function doExport() {
+      const btn = document.querySelector('[data-action="export"]');
       if (btn) {
         btn.classList.add('loading');
         btn.textContent = '⏳ Export...';
       }
-      vscode.postMessage({ type: 'exportCsv' });
+      vscode.postMessage({ type: 'export' });
       setTimeout(() => {
         if (btn) {
           btn.classList.remove('loading');
-          btn.textContent = '📄 Export CSV';
+          btn.textContent = '📤 Export';
         }
-      }, 1500);
+      }, 2000);
+    }
+
+    function doImport() {
+      const btn = document.querySelector('[data-action="import"]');
+      if (btn) {
+        btn.classList.add('loading');
+        btn.textContent = '⏳ Import...';
+      }
+      vscode.postMessage({ type: 'import' });
     }
 
     function bindMatrixUi() {
@@ -501,8 +496,10 @@ export class TranslationMatrixPanel {
           translateAllMissing();
         } else if (action === 'clone-dialog') {
           if (typeof showCloneDialog === 'function') showCloneDialog();
-        } else if (action === 'export-csv') {
-          exportCsv();
+        } else if (action === 'export') {
+          doExport();
+        } else if (action === 'import') {
+          doImport();
         } else if (action === 'sort' && el.dataset.col !== undefined) {
           sortTable(Number(el.dataset.col));
         } else if (action === 'open-file' && el.dataset.key) {

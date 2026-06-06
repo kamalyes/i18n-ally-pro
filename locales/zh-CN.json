@@ -61,6 +61,32 @@
     "summary": "概要: {0} 种语言, {1} 个 key",
     "title": "i18n Ally Pro - 翻译差异报告"
   },
+  "export": {
+    "csv_desc": "逗号分隔值，兼容电子表格工具",
+    "json_desc": "完整结构化数据，包含元信息",
+    "pick_format": "选择导出格式",
+    "success": "已导出 {0} 条翻译（{1} 种语言）到 {2}",
+    "title": "导出 i18n 翻译",
+    "xlsx_desc": "Microsoft Excel 格式，适合非技术人员编辑"
+  },
+  "import": {
+    "existing_locale": "已有语言",
+    "invalid_csv": "无效的 CSV 文件格式",
+    "invalid_json": "无效的 JSON 文件格式",
+    "invalid_xlsx": "无效的 XLSX 文件格式",
+    "mode_merge": "合并（保留已有，添加新的）",
+    "mode_merge_desc": "保留已有翻译，仅添加缺失的",
+    "mode_overwrite": "覆盖（替换已有）",
+    "mode_overwrite_desc": "用导入的值替换已有翻译",
+    "new_locale": "新语言",
+    "no_data": "文件中未找到翻译数据",
+    "parse_failed": "解析文件失败：{0}",
+    "pick_locales": "选择要导入的语言",
+    "pick_mode": "选择导入模式",
+    "success": "已导入 {0} 条翻译（{1} 条跳过）来自 {2}",
+    "title": "导入 i18n 翻译",
+    "unsupported_format": "不支持的文件格式，请使用 JSON、CSV 或 XLSX"
+  },
   "editor": {
     "add_key_done": "Key \"{0}\" 已创建，已翻译 {1} 个语言",
     "add_key_done_no_translate": "Key \"{0}\" 已创建",
