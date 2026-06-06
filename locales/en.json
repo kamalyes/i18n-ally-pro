@@ -36,7 +36,13 @@
     "remove_missing_confirm_yes": "Remove",
     "remove_missing_done": "Removed {0} keys, {1} skipped (have translations in some locales)",
     "remove_missing_failed": "Remove missing keys failed - {0}",
-    "remove_missing_none": "No missing keys found"
+    "remove_missing_none": "No missing keys found",
+    "translate_key_all_done": "Key \"{0}\" already has translations in all locales",
+    "translate_key_done": "Translated \"{0}\" to {1} locale(s), {2} error(s)",
+    "translate_key_failed": "Translate key failed - {0}",
+    "translate_key_no_source": "No source translation found for key \"{0}\"",
+    "translate_key_pick_source": "Select source locale for translating \"{0}\"",
+    "translate_key_title": "Translate Key"
   },
   "diff": {
     "all_complete": "All translations are complete!",

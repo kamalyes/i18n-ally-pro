@@ -36,7 +36,13 @@
     "remove_missing_confirm_yes": "移除",
     "remove_missing_done": "已移除 {0} 个 key，{1} 个跳过（部分语言已有翻译）",
     "remove_missing_failed": "移除缺失 key 失败 - {0}",
-    "remove_missing_none": "未发现缺失的 key"
+    "remove_missing_none": "未发现缺失的 key",
+    "translate_key_all_done": "Key \"{0}\" 在所有语言中已有翻译",
+    "translate_key_done": "已将 \"{0}\" 翻译到 {1} 个语言，{2} 个错误",
+    "translate_key_failed": "翻译 key 失败 - {0}",
+    "translate_key_no_source": "未找到 key \"{0}\" 的源语言翻译",
+    "translate_key_pick_source": "选择翻译 \"{0}\" 的源语言",
+    "translate_key_title": "翻译 Key"
   },
   "diff": {
     "all_complete": "所有翻译已完成！",

@@ -214,6 +214,86 @@ export class ProgressDashboard {
       if (msg.type === 'openKey' && msg.key) {
         await commands.executeCommand('i18nAllyPro.openKeyAndFile', msg.key)
       }
+      if (msg.type === 'translateKey' && msg.key) {
+        try {
+          const key = msg.key
+          const localesWithTranslation = this.store.listLocalesWithTranslation(key)
+          if (localesWithTranslation.length === 0) {
+            window.showWarningMessage(t('dashboard.translate_key_no_source', key))
+            this.panel?.webview.postMessage({ type: 'translateKeyDone', error: true })
+            return
+          }
+
+          const items = localesWithTranslation.map(item => ({
+            label: `${getLocaleFlag(item.locale)} ${getLocaleName(item.locale)}`,
+            description: item.locale,
+            detail: item.value.length > 60 ? item.value.slice(0, 60) + '...' : item.value,
+            locale: item.locale,
+          }))
+
+          const selected = await window.showQuickPick(items, {
+            placeHolder: t('dashboard.translate_key_pick_source', key),
+            title: t('dashboard.translate_key_title'),
+          })
+
+          if (!selected) {
+            this.panel?.webview.postMessage({ type: 'translateKeyDone', error: false })
+            return
+          }
+
+          const sourceLocale = selected.locale
+          const sourceValue = this.store.getTranslation(sourceLocale, key)
+          if (!sourceValue) {
+            window.showWarningMessage(t('dashboard.translate_key_no_source', key))
+            this.panel?.webview.postMessage({ type: 'translateKeyDone', error: true })
+            return
+          }
+
+          const targetLocales = this.store.locales.filter(l => {
+            if (l === sourceLocale) return false
+            const v = this.store.getTranslation(l, key)
+            return !v || v === ''
+          })
+
+          if (targetLocales.length === 0) {
+            window.showInformationMessage(t('dashboard.translate_key_all_done', key))
+            this.panel?.webview.postMessage({ type: 'translateKeyDone', removed: 0 })
+            return
+          }
+
+          let translated = 0
+          let errors = 0
+
+          await window.withProgress({
+            location: ProgressLocation.Notification,
+            title: `i18n Pro: Translating "${key}"`,
+            cancellable: true,
+          }, async (progress, token) => {
+            for (const locale of targetLocales) {
+              if (token.isCancellationRequested) break
+              progress.report({ message: `${sourceLocale} → ${locale}` })
+              try {
+                const result = await this.translatorService!.translateText(sourceValue, sourceLocale, locale)
+                if (result) {
+                  await this.store.setTranslation(locale, key, result)
+                  translated++
+                }
+              } catch {
+                errors++
+              }
+            }
+          })
+
+          await this.store.refresh()
+          this.update()
+          if (this.onRefresh) this.onRefresh()
+          window.showInformationMessage(t('dashboard.translate_key_done', key, String(translated), String(errors)))
+          this.panel?.webview.postMessage({ type: 'translateKeyDone', translated })
+        } catch (err: any) {
+          window.showErrorMessage(t('dashboard.translate_key_failed', err.message))
+          this.panel?.webview.postMessage({ type: 'translateKeyDone', error: true })
+        }
+      }
     })
 
     this.update()
@@ -600,6 +680,9 @@ Instructions:
           <span class="missing-locale">${flagCss ? `<span class="flag-icon-sm"><span class="fi ${flagCss}"></span></span>` : ''} ${d.locale || ''}</span>
           <span class="missing-key">${this.escHtml(d.key)}</span>
           ${dependencyBadge}
+          <button class="btn-icon btn-translate" onclick="event.stopPropagation(); translateKey('${this.escJs(d.key)}')" title="Translate this key from a source locale">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 2a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 1 0V3.707l2.646 2.647a.5.5 0 0 0 .708-.708L5.707 3H7.5a.5.5 0 0 0 0-1h-3zm7 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0V3.707L8.354 6.354a.5.5 0 1 1-.708-.708L10.293 3H8.5a.5.5 0 0 1 0-1h3zM4.5 14a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 1 1 0v1.793l2.646-2.647a.5.5 0 0 1 .708.708L5.707 13H7.5a.5.5 0 0 1 0 1h-3zm7 0a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-1 0v1.793l-2.646-2.647a.5.5 0 0 0-.708.708L10.293 13H8.5a.5.5 0 0 0 0 1h3z"/></svg>
+          </button>
         </div>
         ${dependencySources}
       </div>`
@@ -704,6 +787,8 @@ Instructions:
       justify-content: center;
     }
     .btn-icon:hover { color: var(--color-info); border-color: var(--color-info); background: rgba(33,150,243,0.1); }
+    .btn-translate { color: var(--color-warning); border-color: transparent; }
+    .btn-translate:hover { color: var(--color-warning); border-color: var(--color-warning); background: rgba(255,193,7,0.1); }
 
     /* ── Cards ── */
     .card {
@@ -1069,6 +1154,10 @@ Instructions:
       vscode.postMessage({ type: 'removeMissing' });
       showToast('Removing missing keys...');
     }
+    function translateKey(key) {
+      vscode.postMessage({ type: 'translateKey', key: key });
+      showToast('Translating key: ' + key);
+    }
     function openAIPrompt(target) {
       vscode.postMessage({ type: 'openAIPrompt', target });
     }
@@ -1107,6 +1196,9 @@ Instructions:
         const btn = document.querySelector('.btn-danger');
         setBtnLoading(btn, false);
         showToast(msg.error ? 'Remove missing failed' : 'Removed ' + (msg.removed || 0) + ' keys', msg.error ? 'error' : undefined);
+      }
+      if (msg.type === 'translateKeyDone') {
+        showToast(msg.error ? 'Translate key failed' : 'Translated ' + (msg.translated || 0) + ' locale(s)', msg.error ? 'error' : undefined);
       }
     });
     function openCategory(cat) { vscode.postMessage({ type: 'openCategory', category: cat }); }
